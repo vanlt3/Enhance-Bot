@@ -14709,6 +14709,18 @@ class EnhancedTradingBot:
             traceback.print_exc()
             raise e
         
+        # Initialize risk_manager
+        print("🛡️ [Bot Init] Initializing Risk Manager...")
+        try:
+            self.risk_manager = AdvancedRiskManager()
+            self.risk_manager.data_manager = self.data_manager
+            print(" [Bot Init] Risk Manager initialized successfully")
+        except Exception as e:
+            print(f" [Bot Init] Failed to initialize Risk Manager: {e}")
+            import traceback
+            traceback.print_exc()
+            raise e
+        
         print("🔧 [Bot Init] Initializing other components...")
         try:
             self.news_filter = EnhancedNewsFilter()    # Enhanced news filter
