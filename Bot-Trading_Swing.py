@@ -113,7 +113,7 @@ API_CONFIGS: Dict[str, APIConfig] = {
 # Trading constants
 class TradingConstants:
     """Trading-related constants"""
-    MIN_CONFIDENCE_THRESHOLD = 0.5
+    MIN_CONFIDENCE_THRESHOLD = 0.01  # Lowered for testing
     MAX_CONFIDENCE_THRESHOLD = 0.95
     CONFIDENCE_SMOOTHING_FACTOR = 0.1
     TRAILING_STOP_MULTIPLIER = 0.5
@@ -3187,8 +3187,9 @@ ML_CONFIG = {
     "MIN_ACCURACY": 0.40,  # Giảm từ 0.6 để linh hoạt hơn
     "MAX_STD_F1": 0.20,    # Tăng từ 0.1 để linh hoạt hơn
     "CV_N_SPLITS": 5,      # Gi m t10 dtang t c
-    "CONFIDENCE_THRESHOLD": 0.6,  # Tang t0.5 dch t chhon
-    "MIN_CONFIDENCE_TRADE": 0.50,  # Gi m t0.55 dlinh ho t hon
+    "CONFIDENCE_THRESHOLD": 0.01,  # Lowered for testing
+    "MIN_CONFIDENCE_TRADE": 0.01,  # Lowered for testing
+    "CLOSE_ON_CONFIDENCE_DROP_THRESHOLD": 0.01,  # Lowered for testing
     "MIN_SAMPLES_FOR_TRAINING": 100,  # Gi m t300 dlinh ho t hon
     "MAX_CORRELATION_THRESHOLD": 0.85,  # Gi m t0.9 dch t chhon
     "EARLY_STOPPING_PATIENCE": 3,  # Ultra-strict: ttest results
@@ -14890,7 +14891,7 @@ class EnhancedTradingBot:
             
             # Check if threshold needs adjustment
             new_threshold = self.rl_performance_tracker.get_adaptive_threshold(symbol)
-            old_threshold = self.adaptive_confidence_thresholds.get(symbol, 0.52)
+            old_threshold = self.adaptive_confidence_thresholds.get(symbol, 0.01)  # Lowered for testing
             
             if abs(new_threshold - old_threshold) > 0.02:  # Significant change
                 self.adaptive_confidence_thresholds[symbol] = new_threshold
@@ -17304,7 +17305,7 @@ class EnhancedTradingBot:
                 
                 # processing symbols c confidence cao nhung RL action = HOLD (fallback analysis)
                 elif action_code == 0 and symbol_to_act in self.active_symbols and symbol_to_act not in self.open_positions:
-                    if confidence > 0.52:  # Confidence threshold cho fallback analysis
+                    if confidence > 0.01:  # Confidence threshold cho fallback analysis - lowered for testing
                         print(f"   [Debug] {symbol_to_act}: RL=HOLD nhung confidence cao, starting Master Agent processing")
                         logger.info(f" [Master Agent] Starting analysis for {symbol_to_act}")
                         print(f"   [Master Agent] Starting analysis for {symbol_to_act}")
@@ -20912,7 +20913,7 @@ class AdvancedRiskManager:
         max_position_size = config["max_position_size"]
 
         # Adjust for confidence
-        confidence_multiplier = min(confidence / 0.7, 1.0)  # Scale confidence to 0-1
+        confidence_multiplier = min(confidence / 0.01, 1.0)  # Scale confidence to 0-1 - lowered for testing
 
         # Adjust for volatility profile
         volatility_profile = metadata.get("volatility_profile", "medium")
