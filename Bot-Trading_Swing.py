@@ -14888,6 +14888,81 @@ class EnhancedTradingBot:
             traceback.print_exc()
             # Don't raise exception, continue without database
     
+    async def execute_trade(self, symbol, action, quantity, price):
+        """Execute trade through OANDA API and update position tracking"""
+        try:
+            # Convert action to side for OANDA
+            side = "buy" if action.upper() == "BUY" else "sell"
+            
+            # Get current data for TP/SL calculation
+            current_price = float(price)
+            
+            # Calculate basic TP/SL (can be enhanced later)
+            pip_value = self.calculate_pip_value(symbol)
+            atr_value = 0.001  # Default ATR, should be calculated from current data
+            
+            if action.upper() == "BUY":
+                sl_price = current_price - (atr_value * 2.0)  # 2 ATR stop loss
+                tp_price = current_price + (atr_value * 3.0)  # 3 ATR take profit
+            else:
+                sl_price = current_price + (atr_value * 2.0)
+                tp_price = current_price - (atr_value * 3.0)
+            
+            # Execute the trade through OANDA
+            try:
+                response = _place_market_order(
+                    symbol=symbol,
+                    side=side,
+                    units=int(quantity * 10000),  # Convert to units
+                    sl_price=sl_price,
+                    tp_price=tp_price
+                )
+                
+                if response.get("dry_run"):
+                    print(f"🔄 [DRY RUN] {symbol}: {action} order simulated")
+                    success = True
+                else:
+                    transaction_id = response.get("lastTransactionID") or response.get("orderCreateTransaction", {}).get("id")
+                    print(f"✅ [LIVE] {symbol}: {action} order executed (TX: {transaction_id})")
+                    success = True
+                    
+            except Exception as order_error:
+                print(f"❌ [Order Error] {symbol}: {order_error}")
+                success = False
+            
+            # If order was successful, update position tracking
+            if success:
+                # Calculate confidence (default for now, should come from signal generation)
+                confidence = 0.6
+                
+                # Create reasoning dict
+                reasoning = {
+                    "signal_source": "event_driven_order",
+                    "execution_price": current_price,
+                    "timestamp": datetime.now().isoformat()
+                }
+                
+                # Update position tracking using existing method
+                position_size_percent = 0.01  # 1% risk per trade
+                self.open_position_enhanced(
+                    symbol=symbol,
+                    signal=action.upper(),
+                    entry_price=current_price,
+                    tp=tp_price,
+                    sl=sl_price,
+                    position_size_percent=position_size_percent,
+                    confidence=confidence,
+                    reasoning=reasoning
+                )
+            
+            return success
+            
+        except Exception as e:
+            print(f"❌ Error in execute_trade for {symbol}: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
+    
     def update_rl_performance(self, symbol, action, confidence, pnl):
         """Update RL performance metricfixfter trade completion"""
         try:
@@ -18147,6 +18222,8 @@ class EnhancedTradingBot:
                     # fromhg i needsh bo Discord Or di u ch nh strategy
             except Exception as e:
                 print(f" [Performance Check] Error checking performance for {symbol}: {e}")
+            
+            return True
 
     # TM V THAY THFunction this in l p EnhancedTradingBot
 
@@ -20605,6 +20682,9 @@ class AdvancedRiskManager:
         # Position sizing limits
         self.max_position_size_percent = 0.1  # 10% max per position
         self.max_portfolio_exposure = 0.8  # 80% max total exposure
+        
+        # Initialize symbol risk configurations
+        self.symbol_risk_configs = self._initialize_symbol_risk_configs()
     def _initialize_symbol_risk_configs(self):
         """Initialize risk configurations for each symbol"""
         configs = {}
