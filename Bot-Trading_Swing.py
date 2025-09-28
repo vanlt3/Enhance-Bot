@@ -107,6 +107,11 @@ API_CONFIGS: Dict[str, APIConfig] = {
         api_key='68bafd7d44a7f0.25202650',
         base_url='https://eodhistoricaldata.com/api',
         rate_limit=20
+    ),
+    'ALPHA_VANTAGE': APIConfig(
+        api_key='FK3YQ1IKSC4E1AL5',
+        base_url='https://www.alphavantage.co/query',
+        rate_limit=5
     )
 }
 
@@ -5997,6 +6002,90 @@ class NewsEconomicManager:
             logging.error(f"Error fetching economic calendar from Trading Economics: {e}")
             # If error, return old cache (if available) instead of empty list
             return self.economic_calendar_cache if self.economic_calendar_cache else []
+
+    def _fetch_daily_calendar_from_vantage(self):
+        """
+        Fetch daily economic calendar from Alpha Vantage API.
+        Returns filtered events with HIGH importance or key economic indicators.
+        """
+        try:
+            import requests
+            from datetime import datetime, timedelta
+            
+            # Get Alpha Vantage API key
+            alpha_vantage_key = API_KEYS.get('ALPHA_VANTAGE', '')
+            if not alpha_vantage_key:
+                print("⚠️ [Alpha Vantage] API key not found")
+                return []
+            
+            # Get today's date
+            today = datetime.now().strftime('%Y-%m-%d')
+            
+            # Alpha Vantage Economic Calendar endpoint
+            url = "https://www.alphavantage.co/query"
+            params = {
+                'function': 'ECONOMIC_CALENDAR',
+                'apikey': alpha_vantage_key,
+                'date': today
+            }
+            
+            print(f"📅 [Alpha Vantage] Fetching economic calendar for {today}...")
+            response = requests.get(url, params=params, timeout=30)
+            
+            if response.status_code != 200:
+                print(f"⚠️ [Alpha Vantage] HTTP {response.status_code}: {response.text[:200]}")
+                return []
+            
+            data = response.json()
+            
+            # Check for API errors
+            if 'Error Message' in data:
+                print(f"⚠️ [Alpha Vantage] API Error: {data['Error Message']}")
+                return []
+            
+            if 'Note' in data:
+                print(f"⚠️ [Alpha Vantage] API Note: {data['Note']}")
+                return []
+            
+            # Extract events
+            events = data.get('data', [])
+            if not events:
+                print(f"📅 [Alpha Vantage] No economic events found for {today}")
+                return []
+            
+            # Filter for high-impact events
+            high_impact_keywords = ['CPI', 'FOMC', 'GDP', 'Interest Rate', 'NFP', 'Unemployment', 'Retail Sales', 'PPI']
+            filtered_events = []
+            
+            for event in events:
+                event_name = event.get('event', '').upper()
+                importance = event.get('importance', '').upper()
+                
+                # Check for HIGH importance or key economic indicators
+                is_high_importance = importance == 'HIGH'
+                is_keyword_match = any(keyword.upper() in event_name for keyword in high_impact_keywords)
+                
+                if is_high_importance or is_keyword_match:
+                    # Format event data for consistency
+                    formatted_event = {
+                        'Event': event.get('event', ''),
+                        'Date': event.get('date', ''),
+                        'Time': event.get('time', ''),
+                        'Currency': event.get('currency', ''),
+                        'Importance': importance,
+                        'Actual': event.get('actual', ''),
+                        'Forecast': event.get('forecast', ''),
+                        'Previous': event.get('previous', '')
+                    }
+                    filtered_events.append(formatted_event)
+            
+            print(f"📅 [Alpha Vantage] Found {len(filtered_events)} high-impact events for {today}")
+            return filtered_events
+            
+        except Exception as e:
+            print(f"❌ [Alpha Vantage] Error fetching economic calendar: {e}")
+            return []
+
     async def get_aggregated_news(self, symbol: str):
         """
         Get news from ALL providerfixsynchronously,
@@ -14757,6 +14846,8 @@ class EnhancedTradingBot:
         self.data_manager = None  # Will be initialized after news_manager
         # Initialize news_manager attribute first
         self.news_manager = None
+        # Initialize daily economic events storage
+        self.daily_economic_events = []
         print(" [Bot Init] Core trading attributes set")
         
         try:
@@ -14773,6 +14864,15 @@ class EnhancedTradingBot:
             # Start the scheduler
             self.news_scheduler.start_scheduler()
             print(" [Bot Init] Daily News Scheduler initialized and started")
+            
+            # Fetch daily economic events from Alpha Vantage
+            print("📅 [Bot Init] Fetching daily economic events from Alpha Vantage...")
+            try:
+                self.daily_economic_events = self.news_manager._fetch_daily_calendar_from_vantage()
+                print(f"✅ [Bot Init] Loaded {len(self.daily_economic_events)} economic events for today")
+            except Exception as e:
+                print(f"⚠️ [Bot Init] Failed to fetch daily economic events: {e}")
+                self.daily_economic_events = []
             
         except Exception as e:
             print(f" [Bot Init] Failed to initialize News Manager: {e}")
@@ -18267,9 +18367,10 @@ class EnhancedTradingBot:
             if confidence < ML_CONFIG["MIN_CONFIDENCE_TRADE"]:
                 print(f"[{symbol}] Skipping: Confidence ({confidence:.2%}) too low.")
                 return
-            if TRADE_FILTERS.get("SKIP_NEAR_HIGH_IMPACT_EVENTS", True) and self.has_high_impact_event_soon(symbol):
-                # Function already prints the reason
-                return
+            # REMOVED: Hard filter for high-impact events - now handled by Master Agent
+            # if TRADE_FILTERS.get("SKIP_NEAR_HIGH_IMPACT_EVENTS", True) and self.has_high_impact_event_soon(symbol):
+            #     # Function already prints the reason
+            #     return
             if not self.portfolio_risk_check():
                 print(f"[{symbol}] Skipping: Portfolio risk has reached maximum level.")
                 return
@@ -20212,6 +20313,31 @@ class EnhancedTradingBot:
         for key, value in list(reasoning_data.items())[:3]:  # Show first 3 items
             print(f"   - {key}: {value}")
         
+        # Format daily economic events
+        formatted_economic_events = "No economic events scheduled for today."
+        if hasattr(self, 'daily_economic_events') and self.daily_economic_events:
+            economic_events_list = []
+            for event in self.daily_economic_events:
+                time_str = event.get('Time', 'TBD')
+                currency = event.get('Currency', '')
+                event_name = event.get('Event', '')
+                forecast = event.get('Forecast', '')
+                previous = event.get('Previous', '')
+                
+                # Format the event line
+                event_line = f"- {time_str} ({currency}): {event_name}"
+                if forecast:
+                    event_line += f" (Dự báo: {forecast}"
+                    if previous:
+                        event_line += f", Trước đó: {previous}"
+                    event_line += ")"
+                economic_events_list.append(event_line)
+            
+            if economic_events_list:
+                formatted_economic_events = "\n".join(economic_events_list)
+        
+        print(f" [Master Agent] Economic events: {len(self.daily_economic_events) if hasattr(self, 'daily_economic_events') else 0} events")
+        
         # --- MULTIMODAL LLM INTEGRATION: THÊM KEY MARKET METRICS ---
         # Lấy dữ liệu features để tạo Key Market Metrics
         df_features = self.data_manager.create_enhanced_features(symbol)
@@ -20303,44 +20429,38 @@ class EnhancedTradingBot:
             # Generate Wyckoff narrative
             wyckoff_narrative = self._generate_wyckoff_narrative(latest)
         
-        # Tạo prompt chi tiết với logic cân bằng hơn
+        # Tạo prompt mới với bối cảnh kinh tế trong ngày
         prompt = f"""
-Bạn là Giám đốc Quản lý Rủi ro (CRO) của một quỹ đầu tư.
-Một hệ thống AI cấp dưới đã xuất tín hiệu giao dịch: {signal} {symbol}.
+Bạn là Giám đốc Quản lý Rủi ro (Chief Risk Officer) của một quỹ phòng hộ, có nhiệm vụ đánh giá các tín hiệu giao dịch từ hệ thống AI cấp dưới.
 
-NHIỆM VỤ 1: PHÂN TÍCH TIN TỨC
-Related News:
+**TÍN HIỆU CẦN XÉT DUYỆT:**
+- Lệnh đề xuất: {signal} {symbol}
+- Các luận điểm kỹ thuật chính: {reasoning_data.get("Main Technical Factors", "N/A")}
+- Phân tích xu hướng đa khung: {reasoning_data.get("Trend Analysis", "N/A")}
+
+**BỐI CẢNH THỊ TRƯỜNG HÔM NAY:**
+
+1. LỊCH KINH TẾ QUAN TRỌNG TRONG NGÀY:
+---
+{formatted_economic_events} 
+---
+
+2. TIN TỨC LIÊN QUAN GẦN ĐÂY:
 ---
 {formatted_news}
 ---
 
-NHIỆM VỤ 2: XEM XÉT LUẬN ĐIỂM KỸ THUẬT
-{reasoning_text}
-
-NHIỆM VỤ 3: PHÂN TÍCH CHỈ SỐ THỊ TRƯỜNG CHÍNH
-Key Market Metrics:
-{key_metrics_text}
-
-NHIỆM VỤ 4: PHÂN TÍCH WYCKOFF
-Wyckoff Analysis:
-{wyckoff_narrative}
-
-NHIỆM VỤ 5: RA QUYẾT ĐỊNH CUỐI CÙNG
-Dựa trên phân tích tổng hợp cả tin tức, luận điểm kỹ thuật và các chỉ số thị trường chính, hãy đưa ra quyết định cuối cùng.
-
-**QUAN TRỌNG:** 
-- Nếu không có tin tức tiêu cực và tín hiệu kỹ thuật mạnh (confidence > 50%), nên APPROVE
-- Chỉ REJECT khi có tin tức tiêu cực rõ ràng hoặc tín hiệu kỹ thuật yếu
-- Crypto markets thường giao dịch dựa trên technical analysis khi không có news
-- Xem xét cả các chỉ số thị trường và phân tích Wyckoff để đánh giá toàn diện
-- Tín hiệu Spring/Upthrust được xác nhận bởi SOS/SOW là rất mạnh mẽ
-- Phase C (The Test) là giai đoạn quan trọng nhất trong chu kỳ Wyckoff
+**NHIỆM VỤ CỦA BẠN:**
+Dựa trên **TOÀN BỘ** thông tin trên, hãy đưa ra quyết định cuối cùng. Hãy xem xét các yếu tố:
+- Tín hiệu kỹ thuật có bị mâu thuẫn với tác động dự kiến của các sự kiện kinh tế sắp tới không? (Ví dụ: Tín hiệu BUY USD ngay trước tin CPI dự kiến xấu).
+- Tin tức gần đây có ủng hộ hay phản đối tín hiệu kỹ thuật không?
+- Mức độ rủi ro khi vào lệnh tại thời điểm này là cao hay thấp?
 
 Chỉ trả về duy nhất một khối JSON với định dạng sau:
 {{
-  "sentiment_score": <số float từ -1.0 đến 1.0 dựa trên tin tức>,
+  "sentiment_score": <số float từ -1.0 (tiêu cực) đến 1.0 (tích cực) dựa trên tin tức chung>,
   "decision": "APPROVE" hoặc "REJECT",
-  "justification": "<Lý do ngắn gọn cho quyết định của bạn>"
+  "justification": "<Lý do ngắn gọn, súc tích cho quyết định của bạn, có đề cập đến sự kiện kinh tế nếu nó ảnh hưởng>"
 }}
 """
 
