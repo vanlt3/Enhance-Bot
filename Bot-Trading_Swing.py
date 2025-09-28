@@ -19397,28 +19397,42 @@ class EnhancedTradingBot:
                 else:
                     print(f"   [SL Check] {symbol}: Using real-time price: {current_price:.5f}")
 
-                # 1. Check TP/SL before (Logic old original)
+                # 1. Check TP/SL using candle wick analysis (NEW LOGIC)
                 closed = False
-                print(f"   [SL Check] {symbol}: Current price={current_price:.5f}, SL={position['sl']:.5f}, TP={position['tp']:.5f}")
+                
+                # Lấy thông tin cây nến cuối cùng đã đóng
+                latest_candle = recent_data.iloc[-1]
+                candle_low = latest_candle['low']
+                candle_high = latest_candle['high']
+                sl_price = position['sl']
+                tp_price = position['tp']
+                
+                print(f"   [SL Check] {symbol}: Current price={current_price:.5f}, SL={sl_price:.5f}, TP={tp_price:.5f}")
+                print(f"   [SL Check] {symbol}: Candle Low={candle_low:.5f}, Candle High={candle_high:.5f}")
                 
                 if position["signal"] == "BUY":
-                    if current_price >= position["tp"]:
-                        print(f"   [SL Check] {symbol}: Hit TP! {current_price:.5f} >= {position['tp']:.5f}")
-                        self.close_position_enhanced(symbol, "Hit Take Profit", current_price)
+                    # Ưu tiên kiểm tra râu nến dưới có chạm SL không
+                    if candle_low <= sl_price:
+                        print(f"   [SL Check] {symbol}: SL HIT BY WICK! Low: {candle_low:.5f}, SL: {sl_price:.5f}")
+                        self.close_position_enhanced(symbol, "Stop Loss Hit (Wick)", sl_price)
                         closed = True
-                    elif current_price <= position["sl"]:
-                        print(f"   [SL Check] {symbol}: Hit SL! {current_price:.5f} <= {position['sl']:.5f}")
-                        self.close_position_enhanced(symbol, "Hit Stop Loss", current_price)
+                    # Sau đó kiểm tra râu nến trên có chạm TP không
+                    elif candle_high >= tp_price:
+                        print(f"   [TP Check] {symbol}: TP HIT BY WICK! High: {candle_high:.5f}, TP: {tp_price:.5f}")
+                        self.close_position_enhanced(symbol, "Take Profit Hit (Wick)", tp_price)
                         closed = True
                 else:  # SELL
-                    if current_price <= position["tp"]:
-                        print(f"   [SL Check] {symbol}: Hit TP! {current_price:.5f} <= {position['tp']:.5f}")
-                        self.close_position_enhanced(symbol, "Hit Take Profit", current_price)
+                    # Ưu tiên kiểm tra râu nến trên có chạm SL không
+                    if candle_high >= sl_price:
+                        print(f"   [SL Check] {symbol}: SL HIT BY WICK! High: {candle_high:.5f}, SL: {sl_price:.5f}")
+                        self.close_position_enhanced(symbol, "Stop Loss Hit (Wick)", sl_price)
                         closed = True
-                    elif current_price >= position["sl"]:
-                        print(f"   [SL Check] {symbol}: Hit SL! {current_price:.5f} >= {position['sl']:.5f}")
-                        self.close_position_enhanced(symbol, "Hit Stop Loss", current_price)
+                    # Sau đó kiểm tra râu nến dưới có chạm TP không
+                    elif candle_low <= tp_price:
+                        print(f"   [TP Check] {symbol}: TP HIT BY WICK! Low: {candle_low:.5f}, TP: {tp_price:.5f}")
+                        self.close_position_enhanced(symbol, "Take Profit Hit (Wick)", tp_price)
                         closed = True
+                
                 if closed:
                     continue
 
