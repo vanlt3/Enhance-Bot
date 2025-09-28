@@ -1574,11 +1574,10 @@ def safe_cross_val_score(estimator, X, y, cv=5, scoring='f1', n_jobs=None):
 # if len(physical_devices) > 0:
 #     tf.config.set_visible_devices([], 'GPU')
 
-GOOGLE_AI_API_KEY = "AIzaSyCAxEoJVuq2sehK0aBtXeau1hR-cOgaOS4"  # FIX: Updated with new API key
+GOOGLE_AI_API_KEY = "AIzaSyA66wFiXm5cvxtPZM3wIX0HRSvK64TdU34"  # FIX: Updated with new API key
 TRADING_ECONOMICS_API_KEY = "a284ad0cdba547c:p5oyv77j6kovqhv"  # Trading Economics API credentials
 
-# FIX: Add clear dry run mode control
-IS_DRY_RUN = True  # Set to False for live trading
+# FIX: Removed dry run mode - bot now always executes real trades
 
 # Risk Management Configuration
 RISK_MANAGEMENT = {
@@ -6900,7 +6899,7 @@ class LLMSentimentAnalyzer:
         try:
             genai.configure(api_key=api_key)
             # Try different model names in order of preference
-            model_names = ['gemini-1.5-flash', 'gemini-1.5-flash-001', 'gemini-1.5-flash-latest']  # FIX: Prioritize correct model name
+            model_names = ['gemini-1.5-pro-latest', 'gemini-1.5-flash-latest', 'gemini-pro']  # FIX: Updated to correct model identifiers
             self.model = None
             
             for model_name in model_names:
@@ -14950,13 +14949,10 @@ class EnhancedTradingBot:
                     tp_price=tp_price
                 )
                 
-                if response.get("dry_run"):
-                    print(f"🔄 [DRY RUN] {symbol}: {action} order simulated")
-                    success = True
-                else:
-                    transaction_id = response.get("lastTransactionID") or response.get("orderCreateTransaction", {}).get("id")
-                    print(f"✅ [LIVE] {symbol}: {action} order executed (TX: {transaction_id})")
-                    success = True
+                # FIX: Removed dry run check - always execute real trades
+                transaction_id = response.get("lastTransactionID") or response.get("orderCreateTransaction", {}).get("id")
+                print(f"✅ [LIVE] {symbol}: {action} order executed (TX: {transaction_id})")
+                success = True
                     
             except Exception as order_error:
                 print(f"❌ [Order Error] {symbol}: {order_error}")
@@ -17678,6 +17674,57 @@ class EnhancedTradingBot:
         except Exception as e:
             self._log_and_print("warning", f"Error calculating volatility adjustment for {symbol}: {e}")
             return 0.8
+
+    def _forecast_volatility(self, symbol):
+        """
+        Forecast volatility using GARCH(1,1) model for tail risk prediction
+        """
+        try:
+            # Import arch library
+            try:
+                from arch import arch_model
+            except ImportError:
+                print("Warning: arch library not installed. Install with: pip install arch")
+                return 0.0
+            
+            # Get historical data for returns calculation
+            df_primary_tf = self.data_manager.fetch_multi_timeframe_data(
+                symbol, count=250, timeframes_to_use=[PRIMARY_TIMEFRAME]
+            ).get(PRIMARY_TIMEFRAME)
+            
+            if df_primary_tf is None or len(df_primary_tf) < 100:
+                print(f"Warning: Insufficient data for GARCH forecasting for {symbol}")
+                return 0.0
+            
+            # Calculate daily returns
+            returns = df_primary_tf['close'].pct_change().dropna()
+            
+            if len(returns) < 50:
+                print(f"Warning: Insufficient returns data for GARCH forecasting for {symbol}")
+                return 0.0
+            
+            # Fit GARCH(1,1) model
+            model = arch_model(returns, vol='Garch', p=1, q=1)
+            
+            # Fit the model with error handling
+            try:
+                fitted_model = model.fit(disp='off', show_warning=False)
+            except Exception as e:
+                print(f"Warning: GARCH model fitting failed for {symbol}: {e}")
+                return 0.0
+            
+            # Forecast volatility for next period
+            forecast = fitted_model.forecast(horizon=1)
+            forecasted_volatility = float(forecast.variance.iloc[-1, 0] ** 0.5)
+            
+            # Ensure reasonable volatility range (0.1% to 10%)
+            forecasted_volatility = max(0.001, min(0.10, forecasted_volatility))
+            
+            return forecasted_volatility
+            
+        except Exception as e:
+            print(f"Error in GARCH volatility forecasting for {symbol}: {e}")
+            return 0.0
 
     def enhanced_risk_management(self, symbol, signal, current_price, confidence):
         try:
@@ -21144,56 +21191,7 @@ class AdvancedRiskManager:
 
         return validation_result
     
-    def _forecast_volatility(self, symbol):
-        """
-        Forecast volatility using GARCH(1,1) model for tail risk prediction
-        """
-        try:
-            # Import arch library
-            try:
-                from arch import arch_model
-            except ImportError:
-                print("Warning: arch library not installed. Install with: pip install arch")
-                return 0.0
-            
-            # Get historical data for returns calculation
-            df_primary_tf = self.data_manager.fetch_multi_timeframe_data(
-                symbol, count=250, timeframes_to_use=[PRIMARY_TIMEFRAME]
-            ).get(PRIMARY_TIMEFRAME)
-            
-            if df_primary_tf is None or len(df_primary_tf) < 100:
-                print(f"Warning: Insufficient data for GARCH forecasting for {symbol}")
-                return 0.0
-            
-            # Calculate daily returns
-            returns = df_primary_tf['close'].pct_change().dropna()
-            
-            if len(returns) < 50:
-                print(f"Warning: Insufficient returns data for GARCH forecasting for {symbol}")
-                return 0.0
-            
-            # Fit GARCH(1,1) model
-            model = arch_model(returns, vol='Garch', p=1, q=1)
-            
-            # Fit the model with error handling
-            try:
-                fitted_model = model.fit(disp='off', show_warning=False)
-            except Exception as e:
-                print(f"Warning: GARCH model fitting failed for {symbol}: {e}")
-                return 0.0
-            
-            # Forecast volatility for next period
-            forecast = fitted_model.forecast(horizon=1)
-            forecasted_volatility = float(forecast.variance.iloc[-1, 0] ** 0.5)
-            
-            # Ensure reasonable volatility range (0.1% to 10%)
-            forecasted_volatility = max(0.001, min(0.10, forecasted_volatility))
-            
-            return forecasted_volatility
-            
-        except Exception as e:
-            print(f"Error in GARCH volatility forecasting for {symbol}: {e}")
-            return 0.0
+    # FIX: _forecast_volatility function moved to EnhancedTradingBot class
 
     def calculate_position_size(self, symbol: str, signal: str, current_price: float, confidence: float) -> float:
         """Calculate position size based on risk management rules"""
@@ -21508,21 +21506,16 @@ def _to_oanda_instrument(sym: str) -> str:
 def _place_market_order(symbol: str, side: str, units: int,
                         sl_price=None, tp_price=None):
     """
-    Send marketorder to OANDA v20. If OANDA_ACCOUNT_ID not defined, DRY-RUN logs only.
+    Send market order to OANDA v20. Always executes real trades.
     """
     import logging
-    # FIX: Check IS_DRY_RUN flag first
-    is_dry_run = globals().get("IS_DRY_RUN", True)
-    if is_dry_run:
-        logging.info(f"[DRY-RUN] IS_DRY_RUN=True; simulating {symbol} {side} order for {units} units")
-        return {"dry_run": True, "symbol": symbol, "side": side, "units": units}
+    # FIX: Removed dry run logic - always execute real trades
     
     account_id = globals().get("OANDA_ACCOUNT_ID", None)
     api_key = globals().get("OANDA_API_KEY", None)
     base_url = globals().get("OANDA_URL", "https://api-fxtrade.oanda.com/v3")
     if not account_id or not api_key:
-        logging.warning("[DRY-RUN] Missing OANDA_ACCOUNT_ID/API_KEY; skip live order.")
-        return {"dry_run": True, "symbol": symbol, "side": side, "units": units}
+        raise RuntimeError("Missing OANDA_ACCOUNT_ID/API_KEY - cannot execute live order.")
 
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
     instrument = _to_oanda_instrument(symbol)
