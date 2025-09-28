@@ -6895,7 +6895,7 @@ class LLMSentimentAnalyzer:
 
         try:
             genai.configure(api_key=api_key)
-            self.model = genai.GenerativeModel('gemini-1.5-flash-latest')
+            self.model = genai.GenerativeModel('gemini-1.5-flash')
             
             # Test the connection with a simple request
             test_response = self.model.generate_content("Test connection")
