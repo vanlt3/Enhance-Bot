@@ -21060,6 +21060,30 @@ class AdvancedRiskManager:
             print(f"Error in GARCH volatility forecasting for {symbol}: {e}")
             return 0.0
 
+    def calculate_position_size(self, symbol: str, signal: str, current_price: float, confidence: float) -> float:
+        """Calculate position size based on risk management rules"""
+        try:
+            # Get symbol risk configuration
+            config = self._get_symbol_risk_config(symbol)
+            
+            # Base position size from config
+            max_position_size = config.get('max_position_size', 0.02)
+            
+            # Adjust based on confidence
+            confidence_multiplier = min(2.0, max(0.5, confidence))
+            adjusted_size = max_position_size * confidence_multiplier
+            
+            # Apply risk limits
+            final_size = min(adjusted_size, self.max_position_size_percent)
+            
+            print(f"📊 {symbol}: Position size calculated: {final_size:.4f} (confidence: {confidence:.2f})")
+            return final_size
+            
+        except Exception as e:
+            print(f"❌ Error calculating position size for {symbol}: {e}")
+            # Return conservative default
+            return 0.01
+
 class PortfolioRiskManager:
     """
     Portfolio risk management based on asset correlation.
