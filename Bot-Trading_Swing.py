@@ -6895,15 +6895,32 @@ class LLMSentimentAnalyzer:
 
         try:
             genai.configure(api_key=api_key)
-            self.model = genai.GenerativeModel('gemini-1.5-flash')
+            # Try different model names in order of preference
+            model_names = ['gemini-1.5-flash-latest', 'gemini-1.5-flash-001', 'gemini-1.5-flash']
+            self.model = None
+            
+            for model_name in model_names:
+                try:
+                    self.model = genai.GenerativeModel(model_name)
+                    print(f"[LLMSentimentAnalyzer] Successfully initialized with model: {model_name}")
+                    break
+                except Exception as model_error:
+                    print(f"[LLMSentimentAnalyzer] Failed to initialize {model_name}: {model_error}")
+                    continue
+            
+            if not self.model:
+                raise Exception("All Gemini model variants failed to initialize")
             
             # Test the connection with a simple request
-            test_response = self.model.generate_content("Test connection")
-            if test_response:
-                logging.info("Successfully connected to Gemini API.")
-                print("[LLMSentimentAnalyzer] Gemini API connection established and tested")
+            if self.model:
+                test_response = self.model.generate_content("Test connection")
+                if test_response:
+                    logging.info("Successfully connected to Gemini API.")
+                    print("[LLMSentimentAnalyzer] Gemini API connection established and tested")
+                else:
+                    raise Exception("Test connection failed - no response")
             else:
-                raise Exception("Test connection failed - no response")
+                raise Exception("Failed to initialize any Gemini model variant")
                 
         except Exception as e:
             logging.error(f"Error connecting to Gemini API: {e}")
@@ -14943,8 +14960,14 @@ class EnhancedTradingBot:
             if success:
                 # Pass the actual confidence from signal generation (if available)
                 # For event-driven orders, we should use the actual confidence from the signal
-                # This hardcoded 0.6 is causing the 60% display issue in Discord
-                confidence = getattr(self, 'last_signal_confidence', {}).get(symbol, 0.6)
+                # Use actual confidence from signal generation, fallback to reasonable default
+                stored_confidence = getattr(self, 'last_signal_confidence', {}).get(symbol)
+                if stored_confidence is not None:
+                    confidence = stored_confidence
+                    print(f"[Debug] Using stored confidence for {symbol}: {confidence:.3f}")
+                else:
+                    confidence = 0.5
+                    print(f"[Debug] Using fallback confidence for {symbol}: {confidence:.3f} (no stored confidence found)")
                 
                 # Create reasoning dict
                 reasoning = {
