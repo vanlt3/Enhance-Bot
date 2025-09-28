@@ -1,4 +1,4 @@
-﻿# Standard library imports
+# Standard library imports
 print("🚀 [Bot] Starting imports...")
 
 # ==================================================
@@ -8473,6 +8473,93 @@ class EnsembleModel:
         self.overfitting_detection = True  # Enable overfitting detection
         self.validation_requirements = "STRICT"  # Strict validation
         self.model_weights = {}  # Dictionary dluu trweights of modelsodels
+        
+        # --- DYNAMIC ENSEMBLE WEIGHTS ---
+        self.performance_history = {}  # Track performance of each model
+        self.model_weights_dynamic = {}  # Dynamic weights based on performance
+        self.performance_window = 50  # Number of recent predictions to track
+        self.min_weight = 0.1  # Minimum weight for any model
+        self.max_weight = 0.8  # Maximum weight for any model
+        self.weight_update_frequency = 10  # Update weights every N predictions
+    
+    def update_performance(self, model_name, outcome):
+        """
+        Update performance tracking for a specific model.
+        outcome: 1 for correct prediction, 0 for incorrect
+        """
+        if model_name not in self.performance_history:
+            self.performance_history[model_name] = []
+        
+        # Add new outcome
+        self.performance_history[model_name].append(outcome)
+        
+        # Keep only recent performance (sliding window)
+        if len(self.performance_history[model_name]) > self.performance_window:
+            self.performance_history[model_name] = self.performance_history[model_name][-self.performance_window:]
+        
+        # Update weights if we have enough data
+        if len(self.performance_history[model_name]) >= self.weight_update_frequency:
+            self._update_dynamic_weights()
+    
+    def _update_dynamic_weights(self):
+        """Update dynamic weights based on recent performance"""
+        if not self.performance_history:
+            return
+        
+        # Calculate performance scores for each model
+        performance_scores = {}
+        for model_name, outcomes in self.performance_history.items():
+            if len(outcomes) > 0:
+                # Calculate win rate
+                win_rate = sum(outcomes) / len(outcomes)
+                # Calculate Sharpe-like ratio (mean / std)
+                if len(outcomes) > 1:
+                    mean_perf = win_rate
+                    std_perf = np.std(outcomes)
+                    sharpe_ratio = mean_perf / (std_perf + 1e-8)  # Add small epsilon to avoid division by zero
+                else:
+                    sharpe_ratio = win_rate
+                
+                # Combine win rate and Sharpe ratio
+                performance_scores[model_name] = 0.7 * win_rate + 0.3 * sharpe_ratio
+            else:
+                performance_scores[model_name] = 0.5  # Default neutral score
+        
+        # Convert performance scores to weights
+        if performance_scores:
+            # Normalize scores to [0, 1]
+            min_score = min(performance_scores.values())
+            max_score = max(performance_scores.values())
+            
+            if max_score > min_score:
+                # Normalize to [0, 1]
+                normalized_scores = {
+                    name: (score - min_score) / (max_score - min_score)
+                    for name, score in performance_scores.items()
+                }
+            else:
+                # All scores are equal, use equal weights
+                normalized_scores = {
+                    name: 1.0 for name in performance_scores.keys()
+                }
+            
+            # Apply min/max weight constraints
+            new_weights = {}
+            for name, score in normalized_scores.items():
+                weight = self.min_weight + (self.max_weight - self.min_weight) * score
+                new_weights[name] = weight
+            
+            # Normalize weights to sum to 1
+            total_weight = sum(new_weights.values())
+            if total_weight > 0:
+                for name in new_weights:
+                    new_weights[name] /= total_weight
+            
+            self.model_weights_dynamic = new_weights
+            
+            # Log weight updates
+            logging.info(f"Dynamic weights updated: {new_weights}")
+    
     def _objective(self, trial, X, y, model_name):
         """
         Function m fromiu dOptuna ti uu ha.
@@ -9157,13 +9244,21 @@ class EnsembleModel:
                 logging.warning("EnsembleModel.predict_proba: No valid predictions from this model")
                 return 0.5
 
-            # Calculate weighted average
-            weights = {'rf': 0.3, 'xgb': 0.4, 'lgb': 0.3}  # Default weights
+            # --- DYNAMIC ENSEMBLE WEIGHTS: SỬ DỤNG TRỌNG SỐ ĐỘNG ---
+            # Sử dụng dynamic weights nếu có, fallback về default weights
+            if self.model_weights_dynamic:
+                weights = self.model_weights_dynamic
+                logging.debug(f"Using dynamic weights: {weights}")
+            else:
+                # Default weights
+                weights = {'rf': 0.3, 'xgb': 0.4, 'lgb': 0.3}
+                logging.debug(f"Using default weights: {weights}")
+            
             weighted_sum = 0.0
             total_weight = 0.0
             
             for name, pred in base_predictions.items():
-                weight = weights.get(name, 0.33)  # Tempty smc dnh data nh
+                weight = weights.get(name, 0.33)  # Fallback weight
                 weighted_sum += pred * weight
                 total_weight += weight
             
@@ -9279,14 +9374,22 @@ class EnsembleModel:
                 logging.warning("EnsembleModel.predict_proba_on_df: No valid predictions from this model")
                 return np.full(len(X_clean), 0.5)
 
-            # Calculate weighted average
-            weights = {'rf': 0.3, 'xgb': 0.4, 'lgb': 0.3}  # Default weights
+            # --- DYNAMIC ENSEMBLE WEIGHTS: SỬ DỤNG TRỌNG SỐ ĐỘNG ---
+            # Sử dụng dynamic weights nếu có, fallback về default weights
+            if self.model_weights_dynamic:
+                weights = self.model_weights_dynamic
+                logging.debug(f"Using dynamic weights for DF: {weights}")
+            else:
+                # Default weights
+                weights = {'rf': 0.3, 'xgb': 0.4, 'lgb': 0.3}
+                logging.debug(f"Using default weights for DF: {weights}")
+            
             weighted_sum = np.zeros(len(X_clean))
             total_weight = 0.0
             
             for i, pred in enumerate(predictions):
                 model_name = list(self.models.keys())[i] if i < len(self.models) else f"model_{i}"
-                weight = weights.get(model_name, 0.33)  # Tempty smc dnh data nh
+                weight = weights.get(model_name, 0.33)  # Fallback weight
                 weighted_sum += pred * weight
                 total_weight += weight
             
@@ -15732,23 +15835,34 @@ class EnhancedTradingBot:
                     return None, 0.0, None
 
             current_regime = df_features['market_regime'].iloc[-1]
-
-            # --- BU C 2: CH N NG MODEL D A TRN Tempty THI ---
-            if current_regime != 0:  # Th trung c xu hung
-                model_data = self.trending_models.get(symbol)
-            else:  # Th trung di ngang
-                model_data = self.ranging_models.get(symbol)
-
-            # --- BU C 3: Check MODEL V TI P T C LOGIC ---
-            if model_data is None:
-                logging.warning(f"get_enhanced_signal: No suitable model found for {symbol} (Regime: {current_regime})")
+            
+            # --- BU C 2: SOFT REGIME SWITCHING - TÍNH REGIME CONFIDENCE ---
+            # Lấy trend_strength từ features để tính regime confidence
+            latest_features = df_features.iloc[-1]
+            trend_strength = abs(latest_features.get("trend_strength", 0))
+            
+            # Tính regime confidence score từ 0 đến 1
+            # Chuẩn hóa trend_strength (giả sử max reasonable value là 5.0)
+            regime_confidence = min(trend_strength / 5.0, 1.0)
+            
+            # --- BU C 3: LẤY DỰ ĐOÁN TỪ CẢ HAI MÔ HÌNH ---
+            trending_model_data = self.trending_models.get(symbol)
+            ranging_model_data = self.ranging_models.get(symbol)
+            
+            # Kiểm tra cả hai mô hình có sẵn
+            if trending_model_data is None and ranging_model_data is None:
+                logging.warning(f"get_enhanced_signal: No models found for {symbol}")
                 return None, 0.0, None
-
-            model = model_data.get("ensemble")
-            feature_columns = model_data.get("feature_columns")
-
-            if not model or not feature_columns:
-                logging.warning(f"get_enhanced_signal: Model Or feature_columns not hợp lệ cho {symbol}")
+            
+            # Lấy feature columns từ mô hình có sẵn (ưu tiên trending nếu có)
+            feature_columns = None
+            if trending_model_data:
+                feature_columns = trending_model_data.get("feature_columns")
+            elif ranging_model_data:
+                feature_columns = ranging_model_data.get("feature_columns")
+            
+            if not feature_columns:
+                logging.warning(f"get_enhanced_signal: No feature_columns found for {symbol}")
                 return None, 0.0, None
 
             # Pipeline clean data more (original logic old of b n)
@@ -15780,28 +15894,55 @@ class EnhancedTradingBot:
             #  m b o not needsaN values
             X_ordered = X_ordered.fillna(0.0)
 
-            # Equal with model
+            # --- BU C 4: SOFT REGIME SWITCHING - DỰ ĐOÁN VÀ KẾT HỢP ---
             try:
-                # Check if model l EnsembleModel
-                if hasattr(model, 'predict_proba') and hasattr(model, 'models'):
-                    # EnsembleModel chreceive 1 tham s 
-                    prob_buy = model.predict_proba(X_ordered)
-                else:
-                    # Model thng thu ng
-                    prob_buy = model.predict_proba(X_ordered)
+                # Lấy dự đoán từ trending model (nếu có)
+                trending_prob = 0.5  # Default neutral
+                if trending_model_data and trending_model_data.get("ensemble"):
+                    trending_model = trending_model_data.get("ensemble")
+                    if hasattr(trending_model, 'predict_proba'):
+                        trending_pred = trending_model.predict_proba(X_ordered)
+                        if isinstance(trending_pred, np.ndarray):
+                            if len(trending_pred.shape) > 1:
+                                trending_prob = trending_pred[0, 1] if trending_pred.shape[1] > 1 else trending_pred[0, 0]
+                            else:
+                                trending_prob = trending_pred[0]
+                        else:
+                            trending_prob = float(trending_pred)
+                
+                # Lấy dự đoán từ ranging model (nếu có)
+                ranging_prob = 0.5  # Default neutral
+                if ranging_model_data and ranging_model_data.get("ensemble"):
+                    ranging_model = ranging_model_data.get("ensemble")
+                    if hasattr(ranging_model, 'predict_proba'):
+                        ranging_pred = ranging_model.predict_proba(X_ordered)
+                        if isinstance(ranging_pred, np.ndarray):
+                            if len(ranging_pred.shape) > 1:
+                                ranging_prob = ranging_pred[0, 1] if ranging_pred.shape[1] > 1 else ranging_pred[0, 0]
+                            else:
+                                ranging_prob = ranging_pred[0]
+                        else:
+                            ranging_prob = float(ranging_pred)
+                
+                # --- KẾT HỢP CÓ TRỌNG SỐ DỰA TRÊN REGIME CONFIDENCE ---
+                if current_regime != 0:  # Trending regime
+                    # Trending model có trọng số cao hơn khi regime confidence cao
+                    final_prob = (trending_prob * regime_confidence) + (ranging_prob * (1 - regime_confidence))
+                else:  # Ranging regime
+                    # Ranging model có trọng số cao hơn khi regime confidence thấp
+                    final_prob = (ranging_prob * (1 - regime_confidence)) + (trending_prob * regime_confidence)
+                
+                # Fallback nếu chỉ có một mô hình
+                if trending_model_data is None:
+                    final_prob = ranging_prob
+                elif ranging_model_data is None:
+                    final_prob = trending_prob
+                
+                prob_buy = final_prob
                 
                 if prob_buy is None:
-                    logging.warning(f"get_enhanced_signal: Model trߦ v+ None cho {symbol}")
+                    logging.warning(f"get_enhanced_signal: Model trả về None cho {symbol}")
                     return None, 0.0, None
-                
-                # processing k t quEqual
-                if isinstance(prob_buy, np.ndarray):
-                    if len(prob_buy.shape) > 1:
-                        prob_buy = prob_buy[0, 1] if prob_buy.shape[1] > 1 else prob_buy[0, 0]
-                    else:
-                        prob_buy = prob_buy[0]
-                else:
-                    prob_buy = float(prob_buy)
                 
                 # Apply confidence smoothing
                 prob_buy_smoothed = np.clip(prob_buy, 0.05, 0.95)
@@ -15823,7 +15964,7 @@ class EnhancedTradingBot:
                     signal = "HOLD"
                     confidence = 0.5
                 
-                logging.info(f"get_enhanced_signal: {symbol} - Signal: {signal}, Confidence: {confidence:.3f}, Raw: {prob_buy:.3f}")
+                logging.info(f"get_enhanced_signal: {symbol} - Signal: {signal}, Confidence: {confidence:.3f}, Raw: {prob_buy:.3f}, Regime: {current_regime}, RegimeConf: {regime_confidence:.3f}, Trending: {trending_prob:.3f}, Ranging: {ranging_prob:.3f}")
                 
                 if for_open_position_check:
                     return None, float(confidence), None
@@ -19275,6 +19416,59 @@ class EnhancedTradingBot:
         for key, value in list(reasoning_data.items())[:3]:  # Show first 3 items
             print(f"   - {key}: {value}")
         
+        # --- MULTIMODAL LLM INTEGRATION: THÊM KEY MARKET METRICS ---
+        # Lấy dữ liệu features để tạo Key Market Metrics
+        df_features = self.data_manager.create_enhanced_features(symbol)
+        key_metrics_text = "No market data available."
+        
+        if df_features is not None and not df_features.empty:
+            latest = df_features.iloc[-1]
+            
+            # Tạo Key Market Metrics từ các chỉ số quan trọng
+            metrics = []
+            
+            # RSI
+            rsi_14 = latest.get('rsi_14', 0)
+            if rsi_14 > 0:
+                metrics.append(f"RSI (14): {rsi_14:.1f}")
+            
+            # ATR Normalized
+            atr = latest.get('atr', 0)
+            close_price = latest.get('close', 1)
+            if atr > 0 and close_price > 0:
+                atr_normalized = (atr / close_price) * 100
+                metrics.append(f"ATR (Normalized %): {atr_normalized:.2f}%")
+            
+            # Distance to EMA-200
+            ema_200 = latest.get('ema_200', 0)
+            if ema_200 > 0 and close_price > 0:
+                distance_ema200 = ((close_price - ema_200) / ema_200) * 100
+                metrics.append(f"Distance to EMA-200: {distance_ema200:+.1f}%")
+            
+            # Volume Ratio
+            volume = latest.get('volume', 0)
+            volume_ema = latest.get('volume_ema', 0)
+            if volume > 0 and volume_ema > 0:
+                volume_ratio = volume / volume_ema
+                metrics.append(f"Volume Ratio (vs 20-period avg): {volume_ratio:.1f}x")
+            
+            # MACD Signal
+            macd = latest.get('macd', 0)
+            macd_signal = latest.get('macd_signal', 0)
+            if macd != 0 and macd_signal != 0:
+                macd_diff = macd - macd_signal
+                metrics.append(f"MACD Signal: {macd_diff:+.4f}")
+            
+            # Bollinger Bands Position
+            bb_upper = latest.get('bb_upper', 0)
+            bb_lower = latest.get('bb_lower', 0)
+            if bb_upper > 0 and bb_lower > 0 and close_price > 0:
+                bb_position = ((close_price - bb_lower) / (bb_upper - bb_lower)) * 100
+                metrics.append(f"Bollinger Bands Position: {bb_position:.1f}%")
+            
+            if metrics:
+                key_metrics_text = "\n".join([f"- {metric}" for metric in metrics])
+        
         # Tạo prompt chi tiết với logic cân bằng hơn
         prompt = f"""
 Bạn là Giám đốc Quản lý Rủi ro (CRO) của một quỹ đầu tư.
@@ -19289,13 +19483,18 @@ Related News:
 NHIỆM VỤ 2: XEM XÉT LUẬN ĐIỂM KỸ THUẬT
 {reasoning_text}
 
-NHIỆM VỤ 3: RA QUYẾT ĐỊNH CUỐI CÙNG
-Dựa trên phân tích, hãy đưa ra quyết định cuối cùng.
+NHIỆM VỤ 3: PHÂN TÍCH CHỈ SỐ THỊ TRƯỜNG CHÍNH
+Key Market Metrics:
+{key_metrics_text}
+
+NHIỆM VỤ 4: RA QUYẾT ĐỊNH CUỐI CÙNG
+Dựa trên phân tích tổng hợp cả tin tức, luận điểm kỹ thuật và các chỉ số thị trường chính, hãy đưa ra quyết định cuối cùng.
 
 **QUAN TRỌNG:** 
 - Nếu không có tin tức tiêu cực và tín hiệu kỹ thuật mạnh (confidence > 50%), nên APPROVE
 - Chỉ REJECT khi có tin tức tiêu cực rõ ràng hoặc tín hiệu kỹ thuật yếu
 - Crypto markets thường giao dịch dựa trên technical analysis khi không có news
+- Xem xét cả các chỉ số thị trường để đánh giá toàn diện
 
 Chỉ trả về duy nhất một khối JSON với định dạng sau:
 {{
