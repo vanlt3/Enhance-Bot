@@ -3136,9 +3136,9 @@ ASSET_CLASS_GROUPS = {
     "crypto": ["BTCUSD", "ETHUSD"],
 }
 # (Add near other configuration variables like OANDA_API_KEY)
-EODHD_API_KEY = " 68bafd7d44a7f025202650"
+EODHD_API_KEY = "68bafd7d44a7f0.25202650"  # FIX: Updated with new API key
 NEWSAPI_ORG_API_KEY = "abd8f43b808f42fdb8d28fb1c429af72"
-FINNHUB_API_KEY = "d1b3ichr01qjhvtsbj70d1b3ichr01qjhvtsbj7g"
+FINNHUB_API_KEY = "d1b3ichr01qjhvtsbj8g"  # FIX: Updated with new API key
 MARKETAUX_API_KEY = "CkuQmx9sPsjw0FRDeSkoO8U3O9Jj3HWnUYMJNEql"
 
 # Auto-Retrain Configuration
@@ -6888,7 +6888,7 @@ class LLMSentimentAnalyzer:
     def __init__(self, api_key):
         # Use provided API key or fallback to default
         if not api_key or "DN_API_KEY" in api_key:
-            api_key = "AIzaSyCAxEoJVuq2sehK0aBtXeau1hR-cOgaOS4"  # FIX: Updated with new API key
+            api_key = "AIzaSyA66wFiXm5cvxtPZM3wIX0HRSvK64TdU34"  # FIX: Updated with new API key
             print(" [LLMSentimentAnalyzer] Using fallback API key")
         
         if not api_key or len(api_key) < 10:
@@ -6898,8 +6898,8 @@ class LLMSentimentAnalyzer:
 
         try:
             genai.configure(api_key=api_key)
-            # Try different model names in order of preference
-            model_names = ['gemini-1.5-pro-latest', 'gemini-1.5-flash-latest', 'gemini-pro']  # FIX: Updated to correct model identifiers
+            # FIX: Use 'gemini-pro' as the primary stable model
+            model_names = ['gemini-pro', 'gemini-1.5-pro-latest', 'gemini-1.5-flash-latest']  # FIX: Use gemini-pro as primary stable model
             self.model = None
             
             for model_name in model_names:
@@ -14928,50 +14928,30 @@ class EnhancedTradingBot:
             # Don't raise exception, continue without database
     
     async def execute_trade(self, symbol, action, quantity, price, confidence: float):  # FIX: Added confidence parameter
-        """Execute trade through OANDA API and update position tracking"""
+        """REFACTOR: Send trading signal to Discord instead of executing real trades"""
         try:
-            # Convert action to side for OANDA
-            side = "buy" if action.upper() == "BUY" else "sell"
-            
             # Get current data for TP/SL calculation
             current_price = float(price)
             
             # FIX: Use enhanced_risk_management for proper TP/SL calculation
             tp_price, sl_price = self.enhanced_risk_management(symbol, action, current_price, confidence)
             
-            # Execute the trade through OANDA
-            try:
-                response = _place_market_order(
-                    symbol=symbol,
-                    side=side,
-                    units=int(quantity * 10000),  # Convert to units
-                    sl_price=sl_price,
-                    tp_price=tp_price
-                )
-                
-                # FIX: Removed dry run check - always execute real trades
-                transaction_id = response.get("lastTransactionID") or response.get("orderCreateTransaction", {}).get("id")
-                print(f"✅ [LIVE] {symbol}: {action} order executed (TX: {transaction_id})")
-                success = True
-                    
-            except Exception as order_error:
-                print(f"❌ [Order Error] {symbol}: {order_error}")
-                success = False
+            # REFACTOR: Instead of placing orders, send signal alert to Discord
+            print(f"📊 [SIGNAL] {symbol}: {action} signal detected - sending to Discord")
             
-            # If order was successful, update position tracking
-            if success:
-                # FIX: Use confidence passed as parameter instead of fallback logic
-                
-                # Create reasoning dict
-                reasoning = {
-                    "signal_source": "event_driven_order",
-                    "execution_price": current_price,
-                    "timestamp": datetime.now().isoformat()
-                }
-                
-                # Update position tracking using existing method
-                position_size_percent = 0.01  # 1% risk per trade
-                self.open_position_enhanced(
+            # Create reasoning dict for signal
+            reasoning = {
+                "signal_source": "event_driven_signal",
+                "execution_price": current_price,
+                "timestamp": datetime.now().isoformat(),
+                "Main Technical Factors": "Multi-timeframe analysis with ensemble models",
+                "Trend Analysis": "Market structure and momentum analysis",
+                "Risk Management": f"TP: {tp_price:.5f}, SL: {sl_price:.5f}"
+            }
+            
+            # Send enhanced alert to Discord
+            position_size_percent = 0.01  # 1% risk per trade
+            self.send_enhanced_alert(
                     symbol=symbol,
                     signal=action.upper(),
                     entry_price=current_price,
@@ -14982,7 +14962,7 @@ class EnhancedTradingBot:
                     reasoning=reasoning
                 )
             
-            return success
+            return True  # REFACTOR: Always return True for signal sending
             
         except Exception as e:
             print(f"❌ Error in execute_trade for {symbol}: {e}")
@@ -18326,82 +18306,8 @@ class EnhancedTradingBot:
 
     # TM V THAY THFunction this in l p EnhancedTradingBot
 
-    def close_position_enhanced(self, symbol, reason, exit_price, send_alert=True):
-        if symbol not in self.open_positions:
-            return
-        position = self.open_positions.pop(symbol)
-        save_open_positions(self.open_positions)
-        closed_at = datetime.now(pytz.timezone("Asia/Bangkok"))
-
-        # --- LOGIfromCA M I ---
-        pip_value = self.calculate_pip_value(symbol)
-        signal_price = position.get("signal_price", position["entry_price"]) # L y gi lc t+n hi+u
-
-        # 1. Calculate Slippage: Difference between signal price and execution price
-        slippage_pips = 0
-        if pip_value != 0:
-            if position["signal"] == "BUY":
-                slippage_pips = (position["entry_price"] - signal_price) / pip_value
-            else: # SELL
-                slippage_pips = (signal_price - position["entry_price"]) / pip_value
-
-        # 2. Calculate Spreadost (estimated)
-        spread_pips = position.get("spread_at_open", 0.0) # StFunction bu c sau
-
-        # 3. Calculate final Pips (excluding spread)
-        pips = 0
-        if pip_value != 0:
-            if position["signal"] == "BUY":
-                pips = (exit_price - position["entry_price"]) / pip_value
-            else: # SELL
-                pips = (position["entry_price"] - exit_price) / pip_value
-        # pips -= spread_pips # Trdi chi ph spread dc P/L th c
-        # --- K T THC LOGIfromCA ---
-
-        if self.conn:
-            try:
-                cursor = self.conn.cursor()
-                # TFunctionall gi trmi vo tuple
-                trade_data = (
-                    symbol, position["signal"], position["entry_price"],
-                    exit_price, closed_at.strftime("%Y-%m-%d %H:%M:%S"),
-                    reason, pips, position.get("initial_confidence", 0.0),
-                    signal_price, slippage_pips, spread_pips # New values
-                )
-                # Cp nht li lnh INSERT
-                cursor.execute(
-                    """INSERT INTO trades (symbol, signal, entry_price, exit_price,
-                                          closed_at, reason, pips, confidence,
-                                          signal_price, execution_slippage_pips, spread_cost_pips)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                    trade_data,
-                )
-                self.conn.commit()
-            except Exception as e:
-                print(f"❌ Lỗi ghi DB cho {symbol}: {e}")
-
-        # Save closed position data to file
-        self.save_closed_position(symbol, position, reason, exit_price, pips, closed_at)
-        
-        self.update_performance_metrics()
-        if send_alert:
-            self.send_close_alert_enhanced(symbol, position, reason, exit_price, pips)
-        print(f"     Closed {position['signal']} {symbol} @{exit_price:.5f}. Reason: {reason}. Pips: {pips:.1f}")
-        
-        # Check performance after trade
-        try:
-            rating, data = self.evaluate_symbol_performance(symbol)
-            # Ensure data is a dictionary
-            if isinstance(data, dict):
-                win_rate = data.get('win_rate', 0)
-            else:
-                win_rate = 0
-            
-            if rating == "poor":
-                print(f" [Performance Alert] {symbol} has poor performance after trade")
-                # fromhg i needsh bo Discord Or di u ch nh strategy
-        except Exception as e:
-            print(f" [Performance Check] Li Check performance cho {symbol}: {e}")
+    # REFACTOR: Removed close_position_enhanced function
+    # Bot now only sends signals to Discord instead of managing positions
 
     def save_closed_position(self, symbol, position, reason, exit_price, pips, closed_at):
         """Save closed position data to closed_positions.json file"""
@@ -19540,302 +19446,12 @@ class EnhancedTradingBot:
                 print(f"   [Historical SL] Li Check {symbol}: {e}")
                 continue
 
-    def check_existing_positions(self, live_data_cache=None):
-        """
-        REFACTORED: receive live_data_cache dtrnh fetch data nhi u l n.
-        C i money: Tch h p Check l ch sSLngay khi kh i used
-        """
-        symbols_to_process = list(self.open_positions.keys())
-        for symbol in symbols_to_process:
-            if symbol not in self.open_positions:
-                continue
-            try:
-                position = self.open_positions[symbol]
-
-                # <<< C I money M I: Check l ch sSL before khi Check gi current >>>
-                #  c bi t quan tempty khi bot restart sau khi bgin do n
-                print(f"   [Position Check] {symbol}: Bt du Check vth ...")
-                
-                # Check l ch sSLif vthd m> 30 pht (only if enabled)
-                if ENABLE_HISTORICAL_SL_CHECK:
-                    time_since_open = datetime.now(pytz.timezone("Asia/Bangkok")) - position["opened_at"]
-                    if time_since_open.total_seconds() > 1800:  # > 30 pht
-                        print(f"   [Position Check] {symbol}: Check l ch sSL (vthd m{time_since_open})")
-                        historical_sl_hit = self.check_historical_sl_hit(symbol, position, historical_candles=5)
-                        if historical_sl_hit:
-                            print(f"   [Position Check] {symbol}:  used do SL ch min l ch s ")
-                            continue  # B qua Check tip theo v d s dng lnh
-
-                # <<< C I money 1: Using CACHED DATA Or FALLBACK >>>
-                primary_tf = PRIMARY_TIMEFRAME_BY_SYMBOL.get(symbol, PRIMARY_TIMEFRAME_DEFAULT)
-                
-                if live_data_cache and symbol in live_data_cache:
-                    # Using data tcache
-                    recent_data = live_data_cache[symbol]
-                    print(f"[{symbol}] Using cached data cho position check")
-                else:
-                    # Fallback: fetch data if not c cache
-                    recent_data = self.data_manager.fetch_multi_timeframe_data(symbol, count=50).get(primary_tf)
-                    print(f"[{symbol}]  Fallback: fetch data cho position check")
-
-                if recent_data is None or recent_data.empty:
-                    print(f"[{symbol}]  not has datali u g n duc dCheck vth , bqua.")
-                    continue
-
-                # Using gi real-time thay v gi used of n n
-                current_price = self.data_manager.get_current_price(symbol)
-                if current_price is None:
-                    # Fallback vgi used if not l y d gi real-time
-                    current_price = recent_data['close'].iloc[-1]
-                    print(f"   [SL Check] {symbol}: Fallback vgi usedn n: {current_price:.5f}")
-                else:
-                    print(f"   [SL Check] {symbol}: Using real-time price: {current_price:.5f}")
-
-                # 1. Check TP/SL using candle wick analysis (NEW LOGIC)
-                closed = False
-                
-                # Lấy thông tin cây nến cuối cùng đã đóng
-                latest_candle = recent_data.iloc[-1]
-                candle_low = latest_candle['low']
-                candle_high = latest_candle['high']
-                sl_price = position['sl']
-                tp_price = position['tp']
-                
-                print(f"   [SL Check] {symbol}: Current price={current_price:.5f}, SL={sl_price:.5f}, TP={tp_price:.5f}")
-                print(f"   [SL Check] {symbol}: Candle Low={candle_low:.5f}, Candle High={candle_high:.5f}")
-                
-                if position["signal"] == "BUY":
-                    # Ưu tiên kiểm tra râu nến dưới có chạm SL không
-                    if candle_low <= sl_price:
-                        print(f"   [SL Check] {symbol}: SL HIT BY WICK! Low: {candle_low:.5f}, SL: {sl_price:.5f}")
-                        self.close_position_enhanced(symbol, "Stop Loss Hit (Wick)", sl_price)
-                        closed = True
-                    # Sau đó kiểm tra râu nến trên có chạm TP không
-                    elif candle_high >= tp_price:
-                        print(f"   [TP Check] {symbol}: TP HIT BY WICK! High: {candle_high:.5f}, TP: {tp_price:.5f}")
-                        self.close_position_enhanced(symbol, "Take Profit Hit (Wick)", tp_price)
-                        closed = True
-                else:  # SELL
-                    # Ưu tiên kiểm tra râu nến trên có chạm SL không
-                    if candle_high >= sl_price:
-                        print(f"   [SL Check] {symbol}: SL HIT BY WICK! High: {candle_high:.5f}, SL: {sl_price:.5f}")
-                        self.close_position_enhanced(symbol, "Stop Loss Hit (Wick)", sl_price)
-                        closed = True
-                    # Sau đó kiểm tra râu nến dưới có chạm TP không
-                    elif candle_low <= tp_price:
-                        print(f"   [TP Check] {symbol}: TP HIT BY WICK! Low: {candle_low:.5f}, TP: {tp_price:.5f}")
-                        self.close_position_enhanced(symbol, "Take Profit Hit (Wick)", tp_price)
-                        closed = True
-                
-                if closed:
-                    continue
-
-                # 2. Check "TH I GIAN N H N" (Grace Period) with timezone management
-                grace_period_candles = ML_CONFIG.get("CONFIDENCE_CHECK_GRACE_PERIOD_CANDLES", 0)
-                current_time = get_current_time(TIMEZONE_CONFIG["DEFAULT_TIMEZONE"])
-                time_since_open = (current_time - position["opened_at"])
-
-                minutes_per_candle = 60 # Default H1
-                tf_string = primary_tf.upper()
-                if "M" in tf_string: minutes_per_candle = int(tf_string.replace("M", ""))
-                elif "H" in tf_string: minutes_per_candle = int(tf_string.replace("H", "")) * 60
-                elif "D" in tf_string: minutes_per_candle = 1440
-                grace_period_minutes = grace_period_candles * minutes_per_candle
-                is_in_grace_period = (time_since_open.total_seconds() / 60) < grace_period_minutes
-
-                # 3. Check NG L NH (Chkhi d qua th i gian n h n)
-                if not is_in_grace_period:
-                    _, current_confidence, _ = self.get_enhanced_signal(symbol, for_open_position_check=True)
-                    close_threshold = ML_CONFIG.get("CLOSE_ON_CONFIDENCE_DROP_THRESHOLD", 0)
-
-                    if current_confidence > 0 and close_threshold > 0 and current_confidence < close_threshold:
-                        # <<< C I money 2: TFunction I U KI N Xcreceive KTHU T >>>
-                        ema_period = ML_CONFIG.get("EMA_SHORT_TERM_PERIOD_FOR_CLOSE", 20)
-                        latest_ema_short = EMAIndicator(recent_data["close"], window=ema_period).ema_indicator().iloc[-1]
-                        current_price = self.data_manager.get_current_price(symbol)
-
-                        technical_confirmation = False
-                        if position["signal"] == "BUY" and current_price < latest_ema_short:
-                            technical_confirmation = True
-                            logging.info(f"[{symbol}] [CloseConfirm] Current price ({current_price:.5f}) reached below EMA{ema_period} ({latest_ema_short:.5f}).")
-                        elif position["signal"] == "SELL" and current_price > latest_ema_short:
-                            technical_confirmation = True
-                            logging.info(f"[{symbol}] [CloseConfirm] Current price ({current_price:.5f}) reached above EMA{ema_period} ({latest_ema_short:.5f}).")
-
-                        # <<< C I money 3: LOGIpublic L NH K T H P >>>
-                        if technical_confirmation:
-                            is_in_profit = (position["signal"] == "BUY" and current_price > position["entry_price"]) or \
-                                           (position["signal"] == "SELL" and current_price < position["entry_price"])
-
-                            reason = f"ML Conf gi m ({current_confidence:.2%}) V gi ph vEMA{ema_period}"
-                            reason += " -> Ch t l i s m" if is_in_profit else " -> from l nh s m"
-
-                            print(f"[{symbol}] Closing position due to: {reason}")
-                            self.close_position_enhanced(symbol, reason, current_price)
-                            continue
-                        else:
-                            print(f"[{symbol}]  Confidence gi m ({current_confidence:.2%}) nhung gi v n gic u trc. from model th i gil nh.")
-
-                # 4. UPDATE TRAILING STOP - DISABLED (Master Agent handles all trailing stops now)
-                # self.update_trailing_stop(symbol, current_price)  # Disabled - Master Agent only
-
-            except Exception as e:
-                import traceback
-                print(f"Li Check vth{symbol}: {e}\n{traceback.format_exc()}")
-                pass
-    def close_all_non_crypto_positions_for_weekend(self):
-            """
-            L p qua allc vthdang mv used receiveg vthnot must l crypto.
-            """
-            positions_to_close = []
-            for symbol, position in self.open_positions.items():
-                if not is_crypto_symbol(symbol):
-                    positions_to_close.append(symbol)
-
-            if not positions_to_close:
-                print("[Weekendlose] not c l receiveo needs used vo cu tu n.")
-                return
-
-            alert_message = "🚨 **[NOTICE] WEEKEND POSITION CLOSURE**\n"
-            alert_message += "Closing all non-crypto positions for weekend risk management:\n"
-
-            print(f"[Weekendlose] ang used {len(positions_to_close)} vth ...")
-
-            closed_count = 0
-            for symbol in positions_to_close:
-                current_price = self.data_manager.get_current_price(symbol)
-                if current_price:
-                    reason = "ng l nh tused cu tu n"
-                    signal = self.open_positions[symbol]['signal']
-                    alert_message += f"-  used {signal} **{symbol}** @ `{current_price:.5f}`\n"
-                    self.close_position_enhanced(symbol, reason, current_price)
-                    closed_count += 1
-
-            if closed_count > 0:
-                self.send_discord_alert(alert_message)
-
-    def check_and_execute_weekend_close(self):
-            """
-            Check xelevel must thi dim used l nh cu tu n not v t hnh dng if needs.
-            """
-            if not WEEKEND_CLOSE_CONFIG["ENABLED"]:
-                return
-
-            now_utc = datetime.utcnow()
-
-            # Reset cvo ngy Th2
-            if now_utc.weekday() == 0 and self.weekend_close_executed:
-                print("[Weekendlose] Reset cused l nh cho tu n mi.")
-                self.weekend_close_executed = False
-
-            # Check conditions used l nh
-            is_close_day = (now_utc.weekday() == WEEKEND_CLOSE_CONFIG["CLOSE_DAY_UTC"])
-            is_past_close_time = (now_utc.hour >= WEEKEND_CLOSE_CONFIG["CLOSE_HOUR_UTC"] and
-                                  now_utc.minute >= WEEKEND_CLOSE_CONFIG["CLOSE_MINUTE_UTC"])
-
-            if is_close_day and is_past_close_time and not self.weekend_close_executed:
-                print("[Weekendlose]  dn thi dim used l nh cu tu n!")
-                self.close_all_non_crypto_positions_for_weekend()
-                self.weekend_close_executed = True # nhn d liu d thc hin d lߦ+p lߦi
-    def update_trailing_stop(self, symbol, current_price):
-        """
-        DEPRECATED: This method is no longer used. 
-        Master Agent now handles ALL trailing stops via _apply_master_agent_trailing_stops()
-        """
-        if RISK_MANAGEMENT.get("TRAILING_STOP_MULTIPLIER", 0) <= 0:
-            return
-        if symbol not in self.open_positions:
-            return
-
-        position = self.open_positions[symbol]
-        initial_sl_value = position.get("initial_sl", position["sl"])
-        trail_distance_price = 0
-
-        # --- NEW LOGIC: TNH TRAILING STOP D A TRN ATR ---
-        try:
-            # L y data g n duc dtnh ATR (100 n n dd m b o ddata)
-            multi_tf_data = self.data_manager.fetch_multi_timeframe_data(symbol, count=100)
-            if not multi_tf_data:
-                raise ValueError("not has datali u multi-timeframe")
-                
-            # Using timeframe chnh of symbol
-            primary_tf = PRIMARY_TIMEFRAME_BY_SYMBOL.get(symbol, PRIMARY_TIMEFRAME)
-            df_recent = multi_tf_data.get(primary_tf)
-            
-            if df_recent is None or df_recent.empty or len(df_recent) < 20:
-                raise ValueError(f"Insufficient data to calculate ATR (has {len(df_recent) if df_recent is not None else 0} candles)")
-
-            # Calculate ATR on 14 recent candles (standard parameter)
-            atr_indicator = AverageTrueRange(
-                df_recent["high"], df_recent["low"], df_recent["close"], window=14
-            )
-            atr_series = atr_indicator.average_true_range().dropna()
-            
-            if len(atr_series) == 0:
-                raise ValueError("ATR series empty sau khi dropna")
-                
-            current_atr = atr_series.iloc[-1]
-
-            # L y hsnhn tc configuration RISK_MANAGEMENT
-            atr_multiplier = RISK_MANAGEMENT.get(
-                "TRAILING_STOP_MULTIPLIER", 3.0
-            )  # mc dnh data nh l 3.0 if not c
-
-            trail_distance_price = current_atr * atr_multiplier
-            print(f" ATR-based trail distance for {symbol}: {trail_distance_price:.5f} (ATR: {current_atr:.5f})")
-
-        except Exception as e:
-            # Fallback: if not tnh daTR, used l i logic old with pip cdnh
-            print(
-                f" Cannot calculate ATR for {symbol}, using fixed pip value. Error: {e}"
-            )
-            base_trail_pips = 35  # Gi trdphng
-            pip_value = self.calculate_pip_value(symbol)
-            trail_distance_price = base_trail_pips * pip_value
-        # --- K T THC NEW LOGIC ---
-
-        if trail_distance_price == 0:
-            return  # not lm g if kho ng allh equal 0
-
-        new_sl = position["sl"]
-        old_sl_for_notification = position.get("last_sl_notified", initial_sl_value)
-
-        if position["signal"] == "BUY":
-            potential_new_sl = current_price - trail_distance_price
-            if (
-                potential_new_sl > initial_sl_value
-                and potential_new_sl > position["sl"]
-            ):
-                new_sl = potential_new_sl
-        else:  # SELL
-            potential_new_sl = current_price + trail_distance_price
-            if (
-                potential_new_sl < initial_sl_value
-                and potential_new_sl < position["sl"]
-            ):
-                new_sl = potential_new_sl
-
-        if new_sl != position["sl"]:
-            pip_value = self.calculate_pip_value(
-                symbol
-            )  # Recalculate pip_value for notification
-            sl_change_pips = (
-                abs(new_sl - old_sl_for_notification) / pip_value if pip_value else 0
-            )
-
-            if sl_change_pips >= self.SL_CHANGE_NOTIFICATION_THRESHOLD_PIPS:
-                alert_message = (
-                    f"🔄 **TRAILING STOP UPDATED for {position['signal']} {symbol}**\n"
-                    f"- Old SL: {old_sl_for_notification:.5f}\n"
-                    f"- New SL: {new_sl:.5f}\n"
-                    f"- Current price: {current_price:.5f}"
-                )
-                self.send_discord_alert(alert_message)
-                position["last_sl_notified"] = new_sl
-
-            position["sl"] = new_sl
-            save_open_positions(self.open_positions)
-            # print(f" Trailing Stop cho {symbol}: SL {old_sl_for_notification:.5f} -> {new_sl:.5f}")
+    # REFACTOR: Removed check_existing_positions function
+    # Bot now only sends signals to Discord instead of managing positions
+    # REFACTOR: Removed close_all_non_crypto_positions_for_weekend and check_and_execute_weekend_close functions
+    # Bot now only sends signals to Discord instead of managing positions
+    # REFACTOR: Removed update_trailing_stop function
+    # Bot now only sends signals to Discord instead of managing positions
 
     # EnhancedTradingBofrom modelethods
 
@@ -21497,50 +21113,8 @@ def _decode_actions_to_vector(action, n_symbols, action_space):
     vec[sym_idx] = act if act in (0,1,2) else 0
     return vec
 
-def _to_oanda_instrument(sym: str) -> str:
-    m = {"XAUUSD":"XAU_USD","XAGUSD":"XAG_USD","BTCUSD":"BTC_USD","ETHUSD":"ETH_USD"}
-    if sym in m: return m[sym]
-    if len(sym)==6 and sym.isalpha(): return f"{sym[:3]}_{sym[3:]}"
-    return sym
-
-def _place_market_order(symbol: str, side: str, units: int,
-                        sl_price=None, tp_price=None):
-    """
-    Send market order to OANDA v20. Always executes real trades.
-    """
-    import logging
-    # FIX: Removed dry run logic - always execute real trades
-    
-    account_id = globals().get("OANDA_ACCOUNT_ID", None)
-    api_key = globals().get("OANDA_API_KEY", None)
-    base_url = globals().get("OANDA_URL", "https://api-fxtrade.oanda.com/v3")
-    if not account_id or not api_key:
-        raise RuntimeError("Missing OANDA_ACCOUNT_ID/API_KEY - cannot execute live order.")
-
-    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-    instrument = _to_oanda_instrument(symbol)
-    u = int(units) if side.lower()=="buy" else -int(units)
-    u = 1 if u==0 else u
-
-    payload = {
-        "order": {
-            "type": "MARKET",
-            "instrument": instrument,
-            "units": str(u),
-            "timeInForce": "FOK",
-            "positionFill": "DEFAULT",
-        }
-    }
-    if sl_price:
-        payload["order"]["stopLossOnFill"] = {"timeInForce": "GTC", "price": f"{sl_price:.5f}"}
-    if tp_price:
-        payload["order"]["takeProfitOnFill"] = {"timeInForce": "GTC", "price": f"{tp_price:.5f}"}
-
-    url = f"{base_url}/accounts/{account_id}/orders"
-    r = requests.post(url, headers=headers, data=json.dumps(payload), timeout=10)
-    if r.status_code >= 300:
-        raise RuntimeError(f"OANDA error {r.status_code}: {r.text}")
-    return r.json()
+# REFACTOR: Removed _to_oanda_instrument and _place_market_order functions
+# Bot now only sends signals to Discord instead of executing real trades
 
 def _calc_position_size(balance: float, atr: float, pip_value: float,
                         risk_per_trade: float, sl_atr_mult: float, conf: float):
