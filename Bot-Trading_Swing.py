@@ -3187,8 +3187,9 @@ ML_CONFIG = {
     "MIN_ACCURACY": 0.40,  # Giảm từ 0.6 để linh hoạt hơn
     "MAX_STD_F1": 0.20,    # Tăng từ 0.1 để linh hoạt hơn
     "CV_N_SPLITS": 5,      # Gi m t10 dtang t c
-    "CONFIDENCE_THRESHOLD": 0.6,  # Tang t0.5 dch t chhon
-    "MIN_CONFIDENCE_TRADE": 0.50,  # Gi m t0.55 dlinh ho t hon
+    "CONFIDENCE_THRESHOLD": 0.6,  # Restored to original
+    "MIN_CONFIDENCE_TRADE": 0.50,  # Restored to original
+    "CLOSE_ON_CONFIDENCE_DROP_THRESHOLD": 0.3,  # Restored to reasonable value
     "MIN_SAMPLES_FOR_TRAINING": 100,  # Gi m t300 dlinh ho t hon
     "MAX_CORRELATION_THRESHOLD": 0.85,  # Gi m t0.9 dch t chhon
     "EARLY_STOPPING_PATIENCE": 3,  # Ultra-strict: ttest results
@@ -16773,17 +16774,13 @@ class EnhancedTradingBot:
                 prob_buy_smoothed = prob_buy_smoothed + random_offset
                 prob_buy_smoothed = np.clip(prob_buy_smoothed, 0.05, 0.95)
                 
-                # T o signal d a trn confidence
-                if prob_buy_smoothed > 0.6:
+                # T o signal d a trn confidence - Updated logic: conf >= 0.5 = BUY, < 0.5 = SELL
+                if prob_buy_smoothed >= 0.5:
                     signal = "BUY"
                     confidence = prob_buy_smoothed
-                elif prob_buy_smoothed < 0.4:
+                else:
                     signal = "SELL"
                     confidence = 1.0 - prob_buy_smoothed
-                else:
-                    signal = "HOLD"
-                    # Sửa lỗi: Không clamp confidence về 0.5, sử dụng confidence thực tế
-                    confidence = abs(prob_buy_smoothed - 0.5) * 2  # Confidence từ 0-1
                 
                 logging.info(f"get_enhanced_signal: {symbol} - Signal: {signal}, Confidence: {confidence:.3f}, Raw: {prob_buy:.3f}, Regime: {current_regime}, RegimeConf: {regime_confidence:.3f}, Trending: {trending_prob:.3f}, Ranging: {ranging_prob:.3f}")
                 
