@@ -8129,10 +8129,10 @@ class EnhancedEnsembleModel:
     """Enhanced ensemble with advanced CV, CPCV, and explainability"""
 
     def __init__(self):
-        self.validation_threshold = 0.02  # Ultra-strict: from test results
-        self.early_stopping_patience = 3   # Very early stopping
-        self.regularization_strength = 0.15  # Very sin regularization from test results
-        self.dropout_rate = 0.7  # Very high dropout from test results
+        self.validation_threshold = 0.05  # Nới lỏng từ 0.02 lên 0.05
+        self.early_stopping_patience = 5   # Tăng từ 3 lên 5
+        self.regularization_strength = 0.10  # Giảm từ 0.15 xuống 0.10
+        self.dropout_rate = 0.5  # Giảm từ 0.7 xuống 0.5
         self.batch_normalization = True
         self.data_augmentation = True
         self.cross_validation_folds = 10  # More folds from test results
@@ -8622,10 +8622,10 @@ class LSTMModel:
 # L p this not thay d i
 class EnsembleModel:
     def __init__(self):
-        self.validation_threshold = 0.02  # Ultra-strict: from test results
-        self.early_stopping_patience = 3   # Very early stopping
-        self.regularization_strength = 0.15  # Very sin regularization from test results
-        self.dropout_rate = 0.7  # Very high dropout from test results
+        self.validation_threshold = 0.05  # Nới lỏng từ 0.02 lên 0.05
+        self.early_stopping_patience = 5   # Tăng từ 3 lên 5
+        self.regularization_strength = 0.10  # Giảm từ 0.15 xuống 0.10
+        self.dropout_rate = 0.5  # Giảm từ 0.7 xuống 0.5
         self.batch_normalization = True
         self.data_augmentation = True
         self.cross_validation_folds = 10  # More folds from test results
@@ -16646,10 +16646,10 @@ class EnhancedTradingBot:
             rsi_extremity = abs(rsi_value - 50) / 50  # Distance from neutral RSI
             rsi_confidence = min(1.0, rsi_extremity)
             
-            # Weighted combination of all indicators
+            # Weighted combination of all indicators - Điều chỉnh trọng số
             regime_confidence = (
-                0.4 * adx_confidence +      # ADX is most important for trend detection
-                0.3 * trend_confidence +    # Trend strength from technical analysis
+                0.3 * adx_confidence +      # Giảm trọng số ADX từ 0.4 xuống 0.3
+                0.4 * trend_confidence +    # Tăng trọng số trend strength từ 0.3 lên 0.4
                 0.2 * volatility_confidence + # Volatility indicates trend potential
                 0.1 * rsi_confidence        # RSI extremity as supporting indicator
             )
@@ -16782,7 +16782,8 @@ class EnhancedTradingBot:
                     confidence = 1.0 - prob_buy_smoothed
                 else:
                     signal = "HOLD"
-                    confidence = 0.5
+                    # Sửa lỗi: Không clamp confidence về 0.5, sử dụng confidence thực tế
+                    confidence = abs(prob_buy_smoothed - 0.5) * 2  # Confidence từ 0-1
                 
                 logging.info(f"get_enhanced_signal: {symbol} - Signal: {signal}, Confidence: {confidence:.3f}, Raw: {prob_buy:.3f}, Regime: {current_regime}, RegimeConf: {regime_confidence:.3f}, Trending: {trending_prob:.3f}, Ranging: {ranging_prob:.3f}")
                 
