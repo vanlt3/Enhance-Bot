@@ -148,9 +148,9 @@ COMMODITIES = {'XAUUSD', 'XAGUSD', 'USOIL', 'UKOIL', 'NATGAS'}
 API_KEYS = {name: config.api_key for name, config in API_CONFIGS.items()}
 API_ENDPOINTS = {
     'FINHUB': {'base_url': API_CONFIGS['FINHUB'].base_url, 'quote': '/quote', 'news': '/company-news', 'sentiment': '/news-sentiment'},
-    'MARKETAUX': {'base_url': API_CONFIGS['MARKETAUX'].base_url, 'news': '/news/all', 'news_intraday': '/news/intraday'},
-    'NEWSAPI': {'base_url': API_CONFIGS['NEWSAPI'].base_url, 'everything': '/everything', 'top_headlines': '/top-headlines'},
-    'EODHD': {'base_url': API_CONFIGS['EODHD'].base_url, 'eod': '/eod', 'real_time': '/real-time', 'fundamentals': '/fundamentals'}
+    'MARKETAUX': {'base_url': 'https://api.marketaux.com/v1', 'news': '/news/all', 'news_intraday': '/news/intraday'},
+    'NEWSAPI': {'base_url': 'https://newsapi.org/v2', 'everything': '/everything', 'top_headlines': '/top-headlines'},
+    'EODHD': {'base_url': 'https://eodhistoricaldata.com/api', 'eod': '/eod', 'real_time': '/real-time', 'fundamentals': '/fundamentals'}
 }
 RATE_LIMITS = {name: config.rate_limit for name, config in API_CONFIGS.items()}
 
@@ -5938,7 +5938,8 @@ class NewsEconomicManager:
             except Exception as api_error:
                 error_msg = str(api_error)
                 if "403" in error_msg or "Forbidden" in error_msg:
-                    logging.warning("⚠️ Trading Economic API access forbidden (403) - API key may be invalid or rate limited")
+                    logging.warning("⚠️ Trading Economics API access forbidden (403) - API key may be invalid or rate limited")
+                    logging.warning("⚠️ API key của Trading Economics có thể đã hết hạn hoặc bị khóa")
                     logging.warning("⚠️ Bot will continue without Trading Economics data")
                     # Disable Trading Economics for this session to avoid repeated errors
                     try:
