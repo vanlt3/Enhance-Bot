@@ -74,9 +74,9 @@ class TestInitializationAndConfiguration(TestBotIntegration):
         
         try:
             # Mock external dependencies to avoid real API calls
-            with patch('Bot_Trading_Swing.NewsManager') as mock_news, \
-                 patch('Bot_Trading_Swing.EnhancedDataManager') as mock_data, \
-                 patch('Bot_Trading_Swing.MasterAgentCoordinator') as mock_master:
+            with patch('bot.NewsManager') as mock_news, \
+                 patch('bot.EnhancedDataManager') as mock_data, \
+                 patch('bot.MasterAgentCoordinator') as mock_master:
                 
                 # Create bot instance
                 bot = EnhancedTradingBot()
@@ -103,9 +103,9 @@ class TestInitializationAndConfiguration(TestBotIntegration):
         print("\n🔧 Test Case 1.2: Model Loading")
         
         try:
-            with patch('Bot_Trading_Swing.NewsManager') as mock_news, \
-                 patch('Bot_Trading_Swing.EnhancedDataManager') as mock_data, \
-                 patch('Bot_Trading_Swing.MasterAgentCoordinator') as mock_master:
+            with patch('bot.NewsManager') as mock_news, \
+                 patch('bot.EnhancedDataManager') as mock_data, \
+                 patch('bot.MasterAgentCoordinator') as mock_master:
                 
                 bot = EnhancedTradingBot()
                 
@@ -145,9 +145,9 @@ class TestDataFlowAndFeatureEngineering(TestBotIntegration):
         print("\n📊 Test Case 2.1: Multi-timeframe Data Fetching")
         
         try:
-            with patch('Bot_Trading_Swing.NewsManager') as mock_news, \
-                 patch('Bot_Trading_Swing.EnhancedDataManager') as mock_data, \
-                 patch('Bot_Trading_Swing.MasterAgentCoordinator') as mock_master:
+            with patch('bot.NewsManager') as mock_news, \
+                 patch('bot.EnhancedDataManager') as mock_data, \
+                 patch('bot.MasterAgentCoordinator') as mock_master:
                 
                 bot = EnhancedTradingBot()
                 
@@ -192,9 +192,9 @@ class TestDataFlowAndFeatureEngineering(TestBotIntegration):
         print("\n📊 Test Case 2.2: Enhanced Feature Engineering")
         
         try:
-            with patch('Bot_Trading_Swing.NewsManager') as mock_news, \
-                 patch('Bot_Trading_Swing.EnhancedDataManager') as mock_data, \
-                 patch('Bot_Trading_Swing.MasterAgentCoordinator') as mock_master:
+            with patch('bot.NewsManager') as mock_news, \
+                 patch('bot.EnhancedDataManager') as mock_data, \
+                 patch('bot.MasterAgentCoordinator') as mock_master:
                 
                 bot = EnhancedTradingBot()
                 
@@ -242,9 +242,9 @@ class TestMLCoreAndDecisionLogic(TestBotIntegration):
         print("\n🤖 Test Case 3.1: Soft Regime Switching")
         
         try:
-            with patch('Bot_Trading_Swing.NewsManager') as mock_news, \
-                 patch('Bot_Trading_Swing.EnhancedDataManager') as mock_data, \
-                 patch('Bot_Trading_Swing.MasterAgentCoordinator') as mock_master:
+            with patch('bot.NewsManager') as mock_news, \
+                 patch('bot.EnhancedDataManager') as mock_data, \
+                 patch('bot.MasterAgentCoordinator') as mock_master:
                 
                 bot = EnhancedTradingBot()
                 
@@ -301,9 +301,9 @@ class TestMLCoreAndDecisionLogic(TestBotIntegration):
         print("\n🤖 Test Case 3.2: Multimodal LLM Integration")
         
         try:
-            with patch('Bot_Trading_Swing.NewsManager') as mock_news, \
-                 patch('Bot_Trading_Swing.EnhancedDataManager') as mock_data, \
-                 patch('Bot_Trading_Swing.MasterAgentCoordinator') as mock_master:
+            with patch('bot.NewsManager') as mock_news, \
+                 patch('bot.EnhancedDataManager') as mock_data, \
+                 patch('bot.MasterAgentCoordinator') as mock_master:
                 
                 bot = EnhancedTradingBot()
                 
@@ -359,7 +359,7 @@ class TestMLCoreAndDecisionLogic(TestBotIntegration):
         
         try:
             # Import EnsembleModel
-            from Bot_Trading_Swing import EnsembleModel
+            EnsembleModel = bot_module.EnsembleModel
             
             # Create ensemble model instance
             ensemble = EnsembleModel()
@@ -414,12 +414,16 @@ class TestRLAgent(TestBotIntegration):
                 'EURUSD': pd.DataFrame({
                     'close': [1.1000, 1.1010, 1.1020, 1.1030, 1.1040],
                     'high': [1.1010, 1.1020, 1.1030, 1.1040, 1.1050],
-                    'low': [1.0990, 1.1000, 1.1010, 1.1020, 1.1030]
+                    'low': [1.0990, 1.1000, 1.1010, 1.1020, 1.1030],
+                    'open': [1.1000, 1.1010, 1.1020, 1.1030, 1.1040],
+                    'volume': [1000, 1100, 1200, 1300, 1400]
                 }),
                 'GBPUSD': pd.DataFrame({
                     'close': [1.2500, 1.2510, 1.2520, 1.2530, 1.2540],
                     'high': [1.2510, 1.2520, 1.2530, 1.2540, 1.2550],
-                    'low': [1.2490, 1.2500, 1.2510, 1.2520, 1.2530]
+                    'low': [1.2490, 1.2500, 1.2510, 1.2520, 1.2530],
+                    'open': [1.2500, 1.2510, 1.2520, 1.2530, 1.2540],
+                    'volume': [2000, 2100, 2200, 2300, 2400]
                 })
             }
             
@@ -463,7 +467,9 @@ class TestRLAgent(TestBotIntegration):
                 'EURUSD': pd.DataFrame({
                     'close': [1.1000, 1.1010, 1.1020, 1.1030, 1.1040],
                     'high': [1.1010, 1.1020, 1.1030, 1.1040, 1.1050],
-                    'low': [1.0990, 1.1000, 1.1010, 1.1020, 1.1030]
+                    'low': [1.0990, 1.1000, 1.1010, 1.1020, 1.1030],
+                    'open': [1.1000, 1.1010, 1.1020, 1.1030, 1.1040],
+                    'volume': [1000, 1100, 1200, 1300, 1400]
                 })
             }
             
@@ -602,9 +608,9 @@ class TestExecutionAndMonitoring(TestBotIntegration):
         print("\n📢 Test Case 6.1: Discord Alert")
         
         try:
-            with patch('Bot_Trading_Swing.NewsManager') as mock_news, \
-                 patch('Bot_Trading_Swing.EnhancedDataManager') as mock_data, \
-                 patch('Bot_Trading_Swing.MasterAgentCoordinator') as mock_master:
+            with patch('bot.NewsManager') as mock_news, \
+                 patch('bot.EnhancedDataManager') as mock_data, \
+                 patch('bot.MasterAgentCoordinator') as mock_master:
                 
                 bot = EnhancedTradingBot()
                 
@@ -629,9 +635,9 @@ class TestExecutionAndMonitoring(TestBotIntegration):
         print("\n📢 Test Case 6.2: Position Logic")
         
         try:
-            with patch('Bot_Trading_Swing.NewsManager') as mock_news, \
-                 patch('Bot_Trading_Swing.EnhancedDataManager') as mock_data, \
-                 patch('Bot_Trading_Swing.MasterAgentCoordinator') as mock_master:
+            with patch('bot.NewsManager') as mock_news, \
+                 patch('bot.EnhancedDataManager') as mock_data, \
+                 patch('bot.MasterAgentCoordinator') as mock_master:
                 
                 bot = EnhancedTradingBot()
                 

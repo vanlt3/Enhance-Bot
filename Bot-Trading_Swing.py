@@ -10356,7 +10356,7 @@ class PortfolioEnvironment(gym.Env):
         self.action_space = spaces.MultiDiscrete([3] * self.n_symbols)
         # --- K T THC C I money ---
 
-        self.returns_history = deque(maprocessingen=30)
+        self.returns_history = deque(maxlen=30)
         self.reset()
 
     def _get_observation(self):
