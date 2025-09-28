@@ -5826,9 +5826,9 @@ class NewsEconomicManager:
         # FIX: Disable faulty news APIs to prevent error spam
         providers = [
             ("Finnhub", FinnhubProvider(finnhub_key)),
-            # ("Marketaux", MarketauxProvider(marketaux_key)),  # FIX: Disabled - API errors
-            # ("NewsAPI.org", NewsApiOrgProvider(newsapi_key)),  # FIX: Disabled - API errors
-            # ("EODHD", EODHDProvider(eodhd_key))  # FIX: Disabled - API errors
+            ("Marketaux", MarketauxProvider(marketaux_key)),  # Re-enabled
+            ("NewsAPI.org", NewsApiOrgProvider(newsapi_key)),  # Re-enabled
+            ("EODHD", EODHDProvider(eodhd_key))  # Re-enabled
         ]
         
         enabled_count = 0
