@@ -6898,19 +6898,36 @@ class LLMSentimentAnalyzer:
 
         try:
             genai.configure(api_key=api_key)
-            # FIX: Chỉ định model 'gemini-1.5-flash-latest' để tăng khả năng tương thích
-            self.model = genai.GenerativeModel('gemini-1.5-flash-latest')
-            print("[LLMSentimentAnalyzer] Successfully initialized with model: gemini-1.5-flash-latest")
+            # FIX: Use correct Gemini model names - try multiple variants for compatibility
+            model_names = [
+                'gemini-2.5-flash', 'gemini-2.5-pro', 
+                'gemini-2.0-flash', 'gemini-2.0-pro',
+                'gemini-1.5-flash', 'gemini-1.5-pro', 
+                'gemini-1.0-pro'
+            ]
+            self.model = None
             
-            # Test the connection with a simple request
-            if self.model:
-                test_response = self.model.generate_content("Test connection")
-                if test_response:
-                    logging.info("Successfully connected to Gemini API.")
-                    print("[LLMSentimentAnalyzer] Gemini API connection established and tested")
-                else:
-                    raise Exception("Test connection failed - no response")
-            else:
+            for model_name in model_names:
+                try:
+                    self.model = genai.GenerativeModel(model_name)
+                    print(f"[LLMSentimentAnalyzer] Trying model: {model_name}")
+                    
+                    # Test the connection with a simple request
+                    test_response = self.model.generate_content("Test connection")
+                    if test_response and test_response.text:
+                        logging.info(f"Successfully connected to Gemini API with model: {model_name}")
+                        print(f"[LLMSentimentAnalyzer] Gemini API connection established with model: {model_name}")
+                        break
+                    else:
+                        print(f"[LLMSentimentAnalyzer] Model {model_name} test failed - no response")
+                        self.model = None
+                        
+                except Exception as model_error:
+                    print(f"[LLMSentimentAnalyzer] Model {model_name} failed: {model_error}")
+                    self.model = None
+                    continue
+            
+            if not self.model:
                 raise Exception("Failed to initialize any Gemini model variant")
                 
         except Exception as e:
@@ -6921,7 +6938,7 @@ class LLMSentimentAnalyzer:
 
     def analyze_sentiment_of_news(self, news_items: list):
         if not self.model:
-            return {"score": 0.0, "reasoning": "LLM notoperational."}
+            return {"score": 0.0, "reasoning": "LLM not operational."}
 
         # 1. Định dạng lại tin tức để đưa vào prompt
         formatted_news = ""
@@ -18543,7 +18560,7 @@ class EnhancedTradingBot:
             if sentiment_score == 0.0:
                 # Check if LLM is operational to determine context
                 if not self.news_manager.llm_analyzer or not self.news_manager.llm_analyzer.model:
-                    sentiment_context = " (LLM notoperational)"
+                    sentiment_context = " (LLM not operational)"
                 else:
                     sentiment_context = " (Neutral sentiment)"
             elif sentiment_score > 0.1:
@@ -18555,7 +18572,7 @@ class EnhancedTradingBot:
                 
             reasoning_text += f" **LLM Analysis Score:** {sentiment_score:.2f}{sentiment_context}\n"
         else:
-            reasoning_text += f" **Master Agent:**  LLM notoperational, auto-approve\n"
+            reasoning_text += f" **Master Agent:**  LLM not operational, auto-approve\n"
             reasoning_text += f" **LLM Analysis Score:** 0.00\n"
 
         # Create beautiful Discord message
@@ -19603,6 +19620,7 @@ class EnhancedTradingBot:
 
     async def _execute_bot_cycle_event_driven(self, is_first_run):
         """Execute bot cycle using event-driven architecture"""
+        logger = logging.getLogger('BotAnalysis')  # Fix: Define logger
         try:
             # 1. System health checks
             await self._perform_system_health_checks()
@@ -19680,10 +19698,11 @@ class EnhancedTradingBot:
 
     async def _handle_timing_logic(self, is_first_run):
         """Handle timing logic for bot execution"""
-        if not is_first_run:
-            await self.wait_until_top_of_the_hour()
-        else:
+        if is_first_run:
             print(" Performing initial analysis run immediately...")
+        else:
+            print(" Waiting for next hour before next analysis cycle...")
+            await self.wait_until_top_of_the_hour()
 
         current_time_vn = datetime.now(pytz.timezone("Asia/Bangkok"))
         print(f"\n----- Analysis cycle: {current_time_vn.strftime('%Y-%m-%d %H:%M:%S')} (VN) -----")
@@ -20169,10 +20188,10 @@ class EnhancedTradingBot:
             # Fallback logic based on confidence
             if confidence > 0.5:
                 print(f"[Master Agent] Fallback: Auto-approve due to sin technical signal (confidence: {confidence:.2%})")
-                return {"decision": "APPROVE", "justification": "Sin technical signal, auto-approved (LLM notoperational)", "sentiment_score": 0.0}
+                return {"decision": "APPROVE", "justification": "Strong technical signal, auto-approved (LLM not operational)", "sentiment_score": 0.0}
             else:
                 print(f" [Master Agent] Fallback: Auto-reject due to weak technical signal (confidence: {confidence:.2%})")
-                return {"decision": "REJECT", "justification": "Weak technical signal, auto-rejected (LLM notoperational)", "sentiment_score": 0.0}
+                return {"decision": "REJECT", "justification": "Weak technical signal, auto-rejected (LLM not operational)", "sentiment_score": 0.0}
 
         print(f"[Master Agent] LLM Analyzer ready, starting analysis...")
 
