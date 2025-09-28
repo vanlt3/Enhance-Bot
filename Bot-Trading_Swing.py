@@ -1179,6 +1179,15 @@ import tensorflow as tf
 import torch
 import xgboost as xgb
 
+# Configure TensorFlow GPU settings to avoid CUDA warnings
+gpus = tf.config.experimental.list_physical_devices('GPU')
+if gpus:
+    try:
+        for gpu in gpus:
+            tf.config.experimental.set_memory_growth(gpu, True)
+    except RuntimeError as e:
+        print(f"Could not set memory growth for GPU: {e}")
+
 # Scientific computing
 from scipy.signal import argrelextrema
 from scipy.special import expit
@@ -8520,8 +8529,37 @@ class EnsembleModel:
                 else:
                     sharpe_ratio = win_rate
                 
-                # Combine win rate and Sharpe ratio
-                performance_scores[model_name] = 0.7 * win_rate + 0.3 * sharpe_ratio
+                # Calculate additional performance metrics
+                # Consistency score (how often the model is correct)
+                consistency_score = win_rate
+                
+                # Stability score (inverse of variance)
+                stability_score = 1.0 / (std_perf + 1e-8) if len(outcomes) > 1 else 1.0
+                stability_score = min(1.0, stability_score)  # Cap at 1.0
+                
+                # Recent performance (weight recent outcomes more heavily)
+                recent_window = min(10, len(outcomes))
+                recent_outcomes = outcomes[-recent_window:]
+                recent_win_rate = sum(recent_outcomes) / len(recent_outcomes)
+                
+                # Trend score (improving vs declining performance)
+                if len(outcomes) >= 6:
+                    first_half = outcomes[:len(outcomes)//2]
+                    second_half = outcomes[len(outcomes)//2:]
+                    first_half_rate = sum(first_half) / len(first_half)
+                    second_half_rate = sum(second_half) / len(second_half)
+                    trend_score = 0.5 + (second_half_rate - first_half_rate)  # 0.5 is neutral
+                else:
+                    trend_score = 0.5
+                
+                # Weighted combination of all metrics
+                performance_scores[model_name] = (
+                    0.4 * consistency_score +    # Overall accuracy
+                    0.25 * recent_win_rate +     # Recent performance
+                    0.2 * stability_score +      # Consistency
+                    0.1 * sharpe_ratio +         # Risk-adjusted return
+                    0.05 * trend_score           # Performance trend
+                )
             else:
                 performance_scores[model_name] = 0.5  # Default neutral score
         
@@ -10519,14 +10557,85 @@ class PortfolioEnvironment(gym.Env):
                     reward += calmar_improvement * 0.05  # Smaller reward for Calmar improvement
                     self.previous_calmar = calmar_ratio
         
-        # --- 4. INACTION PENALTY (existing logic) ---
+        # --- 4. PORTFOLIO CONCENTRATION PENALTY ---
+        # Penalize over-concentration in single positions
+        active_positions = np.sum(np.abs(self.positions))
+        if active_positions > 0:
+            position_weights = np.abs(self.positions) / active_positions
+            concentration_penalty = np.sum(position_weights ** 2) * 0.01  # Herfindahl index penalty
+            reward -= concentration_penalty
+        
+        # --- 5. VOLATILITY REGIME ADAPTATION REWARD ---
+        # Reward actions that align with current volatility regime
+        if len(self.returns_history) > 5:
+            recent_volatility = np.std(self.returns_history[-5:])
+            avg_volatility = np.std(self.returns_history)
+            
+            # High volatility: reward conservative actions (fewer trades)
+            # Low volatility: reward active trading
+            if recent_volatility > avg_volatility * 1.2:  # High volatility
+                if num_transactions == 0:  # Conservative action
+                    reward += 0.002
+                else:  # Aggressive action in high volatility
+                    reward -= 0.001
+            else:  # Low volatility
+                if num_transactions > 0:  # Active trading
+                    reward += 0.001
+        
+        # --- 6. MOMENTUM CONSISTENCY REWARD ---
+        # Reward actions that follow market momentum
+        if len(self.returns_history) > 3:
+            recent_momentum = np.mean(self.returns_history[-3:])
+            if recent_momentum > 0:  # Positive momentum
+                # Reward buying actions
+                buy_actions = np.sum(action_vector == 1)
+                if buy_actions > 0:
+                    reward += 0.001 * buy_actions
+            else:  # Negative momentum
+                # Reward selling actions
+                sell_actions = np.sum(action_vector == 2)
+                if sell_actions > 0:
+                    reward += 0.001 * sell_actions
+        
+        # --- 7. RISK-ADJUSTED RETURN REWARD ---
+        # Reward based on risk-adjusted performance
+        if len(self.returns_history) > 10:
+            mean_return = np.mean(self.returns_history)
+            volatility = np.std(self.returns_history)
+            if volatility > 0:
+                sharpe_ratio = mean_return / volatility
+                # Reward improvement in Sharpe ratio
+                if not hasattr(self, 'previous_sharpe'):
+                    self.previous_sharpe = sharpe_ratio
+                sharpe_improvement = sharpe_ratio - self.previous_sharpe
+                reward += sharpe_improvement * 0.05
+                self.previous_sharpe = sharpe_ratio
+        
+        # --- 8. INACTION PENALTY (enhanced) ---
         if np.all(action_vector == 0): 
-            reward -= 0.001
+            # Reduce penalty if market is in consolidation
+            if len(self.returns_history) > 5:
+                recent_range = np.max(self.returns_history[-5:]) - np.min(self.returns_history[-5:])
+                if recent_range < 0.01:  # Low volatility, consolidation
+                    reward -= 0.0005  # Reduced penalty
+                else:
+                    reward -= 0.001  # Normal penalty
+            else:
+                reward -= 0.001
+
+        # --- 9. FINAL REWARD NORMALIZATION ---
+        # Ensure reward is within reasonable bounds
+        reward = np.clip(reward, -0.1, 0.1)
 
         self.current_step += 1
         terminated = self.current_step >= self.max_steps - 1
         obs = self._get_observation()
-        info = {'balance': self.balance}
+        info = {
+            'balance': self.balance,
+            'drawdown': current_drawdown,
+            'sharpe_ratio': sharpe_ratio if 'sharpe_ratio' in locals() else 0,
+            'num_transactions': num_transactions
+        }
         return obs, reward, terminated, False, info
     
     def render(self):
@@ -11347,14 +11456,15 @@ class EnhancedRLEvaluation:
         logging.info(f" Starting enhanced RL evaluation with {n_episodes} episodes...")
 
         for episode in range(n_episodes):
-            obs = test_env.reset()
+            obs, _ = test_env.reset()
             episode_reward = 0
             episode_returns = []
             episode_portfolio_values = []
 
             while True:
                 action, _ = model.predict(obs, deterministic=True)
-                obs, reward, done, info = test_env.step(action)
+                obs, reward, terminated, truncated, info = test_env.step(action)
+                done = terminated or truncated
                 episode_reward += reward
                 episode_returns.append(reward)
 
@@ -16355,9 +16465,42 @@ class EnhancedTradingBot:
             latest_features = df_features.iloc[-1]
             trend_strength = abs(latest_features.get("trend_strength", 0))
             
-            # Tính regime confidence score từ 0 đến 1
-            # Chuẩn hóa trend_strength (giả sử max reasonable value là 5.0)
-            regime_confidence = min(trend_strength / 5.0, 1.0)
+            # Tính regime confidence score từ 0 đến 1 dựa trên multiple indicators
+            adx_value = latest_features.get("adx", 25)  # ADX > 25 indicates trending
+            rsi_value = latest_features.get("rsi", 50)
+            atr_ratio = latest_features.get("atr_ratio", 1.0)
+            
+            # ADX-based confidence (higher ADX = more trending)
+            adx_confidence = min(1.0, max(0.0, (adx_value - 20) / 30))  # Normalize ADX 20-50 to 0-1
+            
+            # Trend strength confidence
+            trend_confidence = min(1.0, max(0.0, trend_strength / 5.0))
+            
+            # Volatility-based confidence (higher ATR ratio = more trending potential)
+            volatility_confidence = min(1.0, max(0.0, (atr_ratio - 0.5) / 1.0))  # Normalize ATR ratio
+            
+            # RSI-based confidence (extreme RSI values indicate stronger trends)
+            rsi_extremity = abs(rsi_value - 50) / 50  # Distance from neutral RSI
+            rsi_confidence = min(1.0, rsi_extremity)
+            
+            # Weighted combination of all indicators
+            regime_confidence = (
+                0.4 * adx_confidence +      # ADX is most important for trend detection
+                0.3 * trend_confidence +    # Trend strength from technical analysis
+                0.2 * volatility_confidence + # Volatility indicates trend potential
+                0.1 * rsi_confidence        # RSI extremity as supporting indicator
+            )
+            
+            # Apply smoothing to avoid rapid regime changes
+            if hasattr(self, f'_regime_confidence_history_{symbol}'):
+                history = getattr(self, f'_regime_confidence_history_{symbol}')
+                history.append(regime_confidence)
+                if len(history) > 5:  # Keep last 5 values
+                    history.pop(0)
+                # Use exponential moving average for smoothing
+                regime_confidence = sum(history) / len(history)
+            else:
+                setattr(self, f'_regime_confidence_history_{symbol}', [regime_confidence])
             
             # --- BU C 3: LẤY DỰ ĐOÁN TỪ CẢ HAI MÔ HÌNH ---
             trending_model_data = self.trending_models.get(symbol)
@@ -20037,6 +20180,41 @@ class EnhancedTradingBot:
                 bb_position = ((close_price - bb_lower) / (bb_upper - bb_lower)) * 100
                 metrics.append(f"Bollinger Bands Position: {bb_position:.1f}%")
             
+            # ADX (Average Directional Index) - Trend Strength
+            adx = latest.get('adx', 0)
+            if adx > 0:
+                trend_strength = "Strong" if adx > 25 else "Weak"
+                metrics.append(f"ADX (Trend Strength): {adx:.1f} ({trend_strength})")
+            
+            # Stochastic Oscillator
+            stoch_k = latest.get('stoch_k', 0)
+            stoch_d = latest.get('stoch_d', 0)
+            if stoch_k > 0 and stoch_d > 0:
+                stoch_signal = "Overbought" if stoch_k > 80 else "Oversold" if stoch_k < 20 else "Neutral"
+                metrics.append(f"Stochastic: K={stoch_k:.1f}, D={stoch_d:.1f} ({stoch_signal})")
+            
+            # Williams %R
+            williams_r = latest.get('williams_r', 0)
+            if williams_r != 0:
+                williams_signal = "Overbought" if williams_r > -20 else "Oversold" if williams_r < -80 else "Neutral"
+                metrics.append(f"Williams %R: {williams_r:.1f} ({williams_signal})")
+            
+            # Market Regime
+            market_regime = latest.get('market_regime', 0)
+            regime_text = "Trending" if market_regime != 0 else "Ranging"
+            metrics.append(f"Market Regime: {regime_text}")
+            
+            # Price Momentum (Rate of Change)
+            roc = latest.get('roc', 0)
+            if roc != 0:
+                momentum_direction = "Bullish" if roc > 0 else "Bearish"
+                metrics.append(f"Price Momentum (ROC): {roc:+.2f}% ({momentum_direction})")
+            
+            # Volatility Regime
+            volatility_regime = latest.get('volatility_regime', 0)
+            vol_regime_text = "High" if volatility_regime > 0 else "Low"
+            metrics.append(f"Volatility Regime: {vol_regime_text}")
+            
             if metrics:
                 key_metrics_text = "\n".join([f"- {metric}" for metric in metrics])
         
@@ -20308,7 +20486,7 @@ class AdvancedRiskManager:
         return len(violations) == 0, violations
 
     def calculate_symbol_specific_var(self, symbol, position_size, returns_history):
-        """Calculate VaR specififromo symbol characteristics"""
+        """Calculate VaR specififromo symbol characteristics with GARCH forecasting"""
         config = self._get_symbol_risk_config(symbol)
 
         if symbol not in returns_history or len(returns_history[symbol]) < 30:
@@ -20319,16 +20497,66 @@ class AdvancedRiskManager:
         # Apply asset class specific VaR multiplier
         var_multiplier = config["var_multiplier"]
 
-        # Calculate VaR
-        var = np.percentile(symbol_returns, 5) * var_multiplier * position_size
+        # Try GARCH-based VaR first, fallback to historical VaR
+        try:
+            garch_var = self._calculate_garch_var(symbol_returns, position_size)
+            if garch_var is not None:
+                return abs(garch_var * var_multiplier)
+        except Exception as e:
+            logging.warning(f"GARCH VaR calculation failed for {symbol}: {e}")
 
+        # Fallback to historical VaR
+        var = np.percentile(symbol_returns, 5) * var_multiplier * position_size
         return abs(var)
+    
+    def _calculate_garch_var(self, returns, position_size, confidence_level=0.05):
+        """Calculate VaR using GARCH(1,1) model for volatility forecasting"""
+        try:
+            # Import arch library
+            from arch import arch_model
+            
+            # Ensure returns are properly formatted
+            returns_series = pd.Series(returns).dropna()
+            if len(returns_series) < 50:  # Need sufficient data for GARCH
+                return None
+            
+            # Fit GARCH(1,1) model
+            model = arch_model(returns_series, vol='Garch', p=1, q=1, dist='normal')
+            model_fit = model.fit(disp='off')
+            
+            # Forecast next period volatility
+            forecast = model_fit.forecast(horizon=1)
+            forecasted_volatility = np.sqrt(forecast.variance.values[-1, 0])
+            
+            # Calculate VaR using forecasted volatility
+            # VaR = -z_score * forecasted_volatility * position_size
+            from scipy.stats import norm
+            z_score = norm.ppf(confidence_level)
+            var = -z_score * forecasted_volatility * position_size
+            
+            return var
+            
+        except ImportError:
+            logging.warning("arch library not available for GARCH modeling")
+            return None
+        except Exception as e:
+            logging.warning(f"GARCH model fitting failed: {e}")
+            return None
 
     def calculate_portfolio_var(self, positions, returns_history, confidence_level=0.05):
-        """Calculate Portfolio Value at Risk using historical simulation with asset clasfixdjustments"""
+        """Calculate Portfolio Value at Risk using GARCH-based volatility forecasting"""
         if len(returns_history) < 30:
             return 0.0
 
+        # Try GARCH-based portfolio VaR first
+        try:
+            garch_portfolio_var = self._calculate_garch_portfolio_var(positions, returns_history, confidence_level)
+            if garch_portfolio_var is not None:
+                return abs(garch_portfolio_var)
+        except Exception as e:
+            logging.warning(f"GARCH portfolio VaR calculation failed: {e}")
+
+        # Fallback to historical simulation
         portfolio_returns = []
         for position in positions:
             symbol = position['symbol']
@@ -20348,9 +20576,68 @@ class AdvancedRiskManager:
         # Calculate VaR at specifiedonfidence level
         var = np.percentile(total_portfolio_returns, confidence_level * 100)
         return abs(var)
+    
+    def _calculate_garch_portfolio_var(self, positions, returns_history, confidence_level=0.05):
+        """Calculate portfolio VaR using GARCH models for each asset"""
+        try:
+            from arch import arch_model
+            from scipy.stats import norm
+            
+            portfolio_volatility = 0.0
+            portfolio_weights = []
+            forecasted_volatilities = []
+            
+            for position in positions:
+                symbol = position['symbol']
+                symbol_returns = returns_history.get(symbol, [])
+                
+                if len(symbol_returns) >= 50:  # Sufficient data for GARCH
+                    returns_series = pd.Series(symbol_returns).dropna()
+                    
+                    # Fit GARCH(1,1) model
+                    model = arch_model(returns_series, vol='Garch', p=1, q=1, dist='normal')
+                    model_fit = model.fit(disp='off')
+                    
+                    # Forecast volatility
+                    forecast = model_fit.forecast(horizon=1)
+                    forecasted_vol = np.sqrt(forecast.variance.values[-1, 0])
+                    
+                    # Apply symbol-specific risk adjustments
+                    config = self._get_symbol_risk_config(symbol)
+                    adjusted_vol = forecasted_vol * config["var_multiplier"]
+                    
+                    forecasted_volatilities.append(adjusted_vol)
+                    portfolio_weights.append(position['weight'])
+                else:
+                    # Use historical volatility for insufficient data
+                    historical_vol = np.std(symbol_returns) if len(symbol_returns) > 0 else 0.0
+                    config = self._get_symbol_risk_config(symbol)
+                    adjusted_vol = historical_vol * config["var_multiplier"]
+                    
+                    forecasted_volatilities.append(adjusted_vol)
+                    portfolio_weights.append(position['weight'])
+            
+            if not forecasted_volatilities:
+                return None
+            
+            # Calculate portfolio volatility using weights
+            portfolio_volatility = np.sqrt(np.sum([w**2 * v**2 for w, v in zip(portfolio_weights, forecasted_volatilities)]))
+            
+            # Calculate VaR
+            z_score = norm.ppf(confidence_level)
+            portfolio_var = -z_score * portfolio_volatility
+            
+            return portfolio_var
+            
+        except ImportError:
+            logging.warning("arch library not available for GARCH portfolio modeling")
+            return None
+        except Exception as e:
+            logging.warning(f"GARCH portfolio model failed: {e}")
+            return None
 
     def calculate_correlation_matrix(self, returns_data):
-        """Calculate correlation matrix with asset class grouping"""
+        """Calculate dynamic correlation matrix with exponential weighting"""
         if len(returns_data) < 2:
             return {}
 
@@ -20369,7 +20656,13 @@ class AdvancedRiskManager:
                     if len(returns1) > 10 and len(returns2) > 10:
                         # Align lengths
                         min_len = min(len(returns1), len(returns2))
-                        corr = np.corrcoef(returns1[-min_len:], returns2[-min_len:])[0, 1]
+                        
+                        # Calculate dynamic correlation using exponential weighting
+                        corr = self._calculate_dynamic_correlation(
+                            returns1[-min_len:], 
+                            returns2[-min_len:], 
+                            com=60  # 60-period center of mass for exponential weighting
+                        )
                         correlation_matrix[i, j] = corr if not np.isnan(corr) else 0.0
 
         # Store as dictionary for easy access
@@ -20381,6 +20674,25 @@ class AdvancedRiskManager:
 
         self.correlation_matrix = correlation_dict
         return correlation_dict
+    
+    def _calculate_dynamic_correlation(self, returns1, returns2, com=60):
+        """Calculate dynamic correlation using exponential weighted moving correlation"""
+        try:
+            # Convert to pandas Series for EWM calculation
+            series1 = pd.Series(returns1)
+            series2 = pd.Series(returns2)
+            
+            # Calculate exponential weighted correlation
+            # This gives more weight to recent data
+            ewm_corr = series1.ewm(com=com).corr(series2)
+            
+            # Return the most recent correlation value
+            return ewm_corr.iloc[-1] if not ewm_corr.empty else 0.0
+            
+        except Exception as e:
+            logging.warning(f"Dynamic correlation calculation failed: {e}")
+            # Fallback to simple correlation
+            return np.corrcoef(returns1, returns2)[0, 1] if len(returns1) > 1 else 0.0
 
     def check_correlation_limits(self, new_symbol, existing_positions):
         """Check if adding new position would violate correlation limits"""
