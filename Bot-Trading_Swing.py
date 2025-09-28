@@ -1574,8 +1574,11 @@ def safe_cross_val_score(estimator, X, y, cv=5, scoring='f1', n_jobs=None):
 # if len(physical_devices) > 0:
 #     tf.config.set_visible_devices([], 'GPU')
 
-GOOGLE_AI_API_KEY = "AIzaSyBCexoODvgrN2QRG8_iKv3p5VTJ5jaJ_B0"
+GOOGLE_AI_API_KEY = "AIzaSyCAxEoJVuq2sehK0aBtXeau1hR-cOgaOS4"  # FIX: Updated with new API key
 TRADING_ECONOMICS_API_KEY = "a284ad0cdba547c:p5oyv77j6kovqhv"  # Trading Economics API credentials
+
+# FIX: Add clear dry run mode control
+IS_DRY_RUN = True  # Set to False for live trading
 
 # Risk Management Configuration
 RISK_MANAGEMENT = {
@@ -5821,11 +5824,12 @@ class NewsEconomicManager:
         print(f"   - EODHD: {eodhd_key[:10]}...")
         
         # Initialize providers
+        # FIX: Disable faulty news APIs to prevent error spam
         providers = [
             ("Finnhub", FinnhubProvider(finnhub_key)),
-            ("Marketaux", MarketauxProvider(marketaux_key)),
-            ("NewsAPI.org", NewsApiOrgProvider(newsapi_key)),
-            ("EODHD", EODHDProvider(eodhd_key))
+            # ("Marketaux", MarketauxProvider(marketaux_key)),  # FIX: Disabled - API errors
+            # ("NewsAPI.org", NewsApiOrgProvider(newsapi_key)),  # FIX: Disabled - API errors
+            # ("EODHD", EODHDProvider(eodhd_key))  # FIX: Disabled - API errors
         ]
         
         enabled_count = 0
@@ -6885,7 +6889,7 @@ class LLMSentimentAnalyzer:
     def __init__(self, api_key):
         # Use provided API key or fallback to default
         if not api_key or "DN_API_KEY" in api_key:
-            api_key = "AIzaSyBCexoODvgrN2QRG8_iKv3p5VTJ5jaJ_B0"
+            api_key = "AIzaSyCAxEoJVuq2sehK0aBtXeau1hR-cOgaOS4"  # FIX: Updated with new API key
             print(" [LLMSentimentAnalyzer] Using fallback API key")
         
         if not api_key or len(api_key) < 10:
@@ -6896,7 +6900,7 @@ class LLMSentimentAnalyzer:
         try:
             genai.configure(api_key=api_key)
             # Try different model names in order of preference
-            model_names = ['gemini-1.5-flash-latest', 'gemini-1.5-flash-001', 'gemini-1.5-flash']
+            model_names = ['gemini-1.5-flash', 'gemini-1.5-flash-001', 'gemini-1.5-flash-latest']  # FIX: Prioritize correct model name
             self.model = None
             
             for model_name in model_names:
@@ -10991,12 +10995,15 @@ class SignalProcessor(EventProcessor):
             
             if position_size > 0:
                 # Create order event
+                # FIX: Add confidence to OrderEvent data
                 order_event = OrderEvent(
                     symbol=symbol,
                     action=signal,
                     quantity=position_size,
                     price=current_price
                 )
+                # Add confidence to event data
+                order_event.data['confidence'] = confidence
                 
                 # Send to order queue
                 await self.bot.event_coordinator.order_queue.put(order_event)
@@ -11021,7 +11028,14 @@ class OrderProcessor(EventProcessor):
             price = event.data['price']
             
             # Execute the trade
-            success = await self.bot.execute_trade(symbol, action, quantity, price)
+            # FIX: Pass confidence from event data to execute_trade
+            success = await self.bot.execute_trade(
+                symbol, 
+                action, 
+                quantity, 
+                price,
+                event.data.get('confidence', 0.5)  # FIX: Pass confidence from event
+            )
             
             if success:
                 print(f"✅ {symbol}: {action} order executed successfully")
@@ -14914,7 +14928,7 @@ class EnhancedTradingBot:
             traceback.print_exc()
             # Don't raise exception, continue without database
     
-    async def execute_trade(self, symbol, action, quantity, price):
+    async def execute_trade(self, symbol, action, quantity, price, confidence: float):  # FIX: Added confidence parameter
         """Execute trade through OANDA API and update position tracking"""
         try:
             # Convert action to side for OANDA
@@ -14923,16 +14937,8 @@ class EnhancedTradingBot:
             # Get current data for TP/SL calculation
             current_price = float(price)
             
-            # Calculate basic TP/SL (can be enhanced later)
-            pip_value = self.calculate_pip_value(symbol)
-            atr_value = 0.001  # Default ATR, should be calculated from current data
-            
-            if action.upper() == "BUY":
-                sl_price = current_price - (atr_value * 2.0)  # 2 ATR stop loss
-                tp_price = current_price + (atr_value * 3.0)  # 3 ATR take profit
-            else:
-                sl_price = current_price + (atr_value * 2.0)
-                tp_price = current_price - (atr_value * 3.0)
+            # FIX: Use enhanced_risk_management for proper TP/SL calculation
+            tp_price, sl_price = self.enhanced_risk_management(symbol, action, current_price, confidence)
             
             # Execute the trade through OANDA
             try:
@@ -14958,16 +14964,7 @@ class EnhancedTradingBot:
             
             # If order was successful, update position tracking
             if success:
-                # Pass the actual confidence from signal generation (if available)
-                # For event-driven orders, we should use the actual confidence from the signal
-                # Use actual confidence from signal generation, fallback to reasonable default
-                stored_confidence = getattr(self, 'last_signal_confidence', {}).get(symbol)
-                if stored_confidence is not None:
-                    confidence = stored_confidence
-                    print(f"[Debug] Using stored confidence for {symbol}: {confidence:.3f}")
-                else:
-                    confidence = 0.5
-                    print(f"[Debug] Using fallback confidence for {symbol}: {confidence:.3f} (no stored confidence found)")
+                # FIX: Use confidence passed as parameter instead of fallback logic
                 
                 # Create reasoning dict
                 reasoning = {
@@ -21514,6 +21511,12 @@ def _place_market_order(symbol: str, side: str, units: int,
     Send marketorder to OANDA v20. If OANDA_ACCOUNT_ID not defined, DRY-RUN logs only.
     """
     import logging
+    # FIX: Check IS_DRY_RUN flag first
+    is_dry_run = globals().get("IS_DRY_RUN", True)
+    if is_dry_run:
+        logging.info(f"[DRY-RUN] IS_DRY_RUN=True; simulating {symbol} {side} order for {units} units")
+        return {"dry_run": True, "symbol": symbol, "side": side, "units": units}
+    
     account_id = globals().get("OANDA_ACCOUNT_ID", None)
     api_key = globals().get("OANDA_API_KEY", None)
     base_url = globals().get("OANDA_URL", "https://api-fxtrade.oanda.com/v3")
