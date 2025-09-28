@@ -15571,7 +15571,7 @@ class EnhancedTradingBot:
                 trades_query = """
                     SELECT pips, entry_price, exit_price, id, closed_at
                     FROM trades 
-                    WHERE symbol =  AND exit_price IS NOT NULL
+                    WHERE symbol = ? AND exit_price IS NOT NULL
                     ORDER BY id DESC
                     LIMIT 100
                 """
@@ -15579,7 +15579,7 @@ class EnhancedTradingBot:
                 trades_query = """
                     SELECT pips, entry_price, exit_price, opened_at, closed_at
                     FROM trades 
-                    WHERE symbol =  AND exit_price IS NOT NULL
+                    WHERE symbol = ? AND exit_price IS NOT NULL
                     ORDER BY opened_at DESC
                     LIMIT 100
                 """
@@ -23247,7 +23247,7 @@ class AdvancedFeatureStore:
         query = """
             SELECT timestamp, feature_name, feature_value
             FROM features
-            WHERE symbol =  AND timeframe = 
+            WHERE symbol = ? AND timeframe = ?
         """
         params = [symbol, timeframe]
 
