@@ -5949,8 +5949,9 @@ class NewsEconomicManager:
                 error_msg = str(api_error)
                 if "403" in error_msg or "Forbidden" in error_msg:
                     logging.warning("⚠️ Trading Economics API access forbidden (403) - API key may be invalid or rate limited")
-                    logging.warning("⚠️ API key của Trading Economics có thể đã hết hạn hoặc bị khóa")
+                    logging.warning("⚠️ Trading Economics API key may have expired or been blocked")
                     logging.warning("⚠️ Bot will continue without Trading Economics data")
+                    print("📊 [Trading Economics] API access denied - continuing without economic calendar data")
                     # Disable Trading Economics for this session to avoid repeated errors
                     try:
                         globals()['TRADING_ECONOMICS_AVAILABLE'] = False
@@ -6895,11 +6896,19 @@ class LLMSentimentAnalyzer:
         try:
             genai.configure(api_key=api_key)
             self.model = genai.GenerativeModel('gemini-1.5-flash-latest')
-            logging.info("Successfully connected to Gemini API.")
-            print("[LLMSentimentAnalyzer] Gemini API connection established")
+            
+            # Test the connection with a simple request
+            test_response = self.model.generate_content("Test connection")
+            if test_response:
+                logging.info("Successfully connected to Gemini API.")
+                print("[LLMSentimentAnalyzer] Gemini API connection established and tested")
+            else:
+                raise Exception("Test connection failed - no response")
+                
         except Exception as e:
             logging.error(f"Error connecting to Gemini API: {e}")
             print(f"[LLMSentimentAnalyzer] Connection failed: {e}")
+            print(f"[LLMSentimentAnalyzer] API Key length: {len(api_key) if api_key else 0}")
             self.model = None
 
     def analyze_sentiment_of_news(self, news_items: list):
@@ -15250,8 +15259,14 @@ class EnhancedTradingBot:
             )
             final_confidence *= consistency_factor
             
+            # Debug: Log confidence before and after clamping
+            print(f"[DEBUG] _combine_all_decisions_with_online_learning for {symbol}:")
+            print(f"  - Before clamping: {final_confidence}")
+            
             # Clamp final confidence
             final_confidence = max(0.1, min(0.95, final_confidence))
+            
+            print(f"  - After clamping: {final_confidence}")
             
             # Log decision combination with enhanced details
             logger = BOT_LOGGERS['RLStrategy']
@@ -15571,7 +15586,7 @@ class EnhancedTradingBot:
                 trades_query = """
                     SELECT pips, entry_price, exit_price, id, closed_at
                     FROM trades 
-                    WHERE symbol =  AND exit_price IS NOT NULL
+                    WHERE symbol = ? AND exit_price IS NOT NULL
                     ORDER BY id DESC
                     LIMIT 100
                 """
@@ -15579,7 +15594,7 @@ class EnhancedTradingBot:
                 trades_query = """
                     SELECT pips, entry_price, exit_price, opened_at, closed_at
                     FROM trades 
-                    WHERE symbol =  AND exit_price IS NOT NULL
+                    WHERE symbol = ? AND exit_price IS NOT NULL
                     ORDER BY opened_at DESC
                     LIMIT 100
                 """
@@ -17352,6 +17367,13 @@ class EnhancedTradingBot:
                         symbol_data, symbol_to_act
                     )
                     
+                    # Debug: Log confidence values before combination
+                    print(f"[DEBUG] Before combination for {symbol_to_act}:")
+                    print(f"  - RL confidence: {adjusted_confidence}")
+                    print(f"  - Master confidence: {master_confidence}")
+                    print(f"  - Ensemble confidence: {ensemble_confidence}")
+                    print(f"  - Online confidence: {online_confidence}")
+                    
                     # Combine RL, Master Agent, Ensemble, v Online Learning decisions
                     final_decision, final_confidence = self._combine_all_decisions_with_online_learning(
                         action_name, adjusted_confidence,
@@ -17360,6 +17382,9 @@ class EnhancedTradingBot:
                         online_decision, online_confidence,
                         symbol_to_act
                     )
+                    
+                    # Debug: Log final confidence after combination
+                    print(f"[DEBUG] After combination for {symbol_to_act}: final_confidence = {final_confidence}")
                     
                     logger.info(f" [RL Strategy] Enhanced decision for {symbol_to_act}:")
                     logger.info(f"   - RL Action: {action_name} (confidence: {adjusted_confidence:.2%})")
@@ -18417,6 +18442,9 @@ class EnhancedTradingBot:
     def send_enhanced_alert(self, symbol, signal, entry_price, tp, sl, confidence, position_size_percent, reasoning, master_decision=None):
         strategy_type = "[RL]" if self.use_rl else "[Ensemble]"
 
+        # Debug: Log the actual confidence value before formatting
+        print(f"[DEBUG] send_enhanced_alert for {symbol}: raw confidence = {confidence} ({type(confidence)})")
+        
         # Format reasoning with emoji v structure d p hon
         reasoning_text = " **Lu n di m vo l nh:**\n"
         
@@ -23247,7 +23275,7 @@ class AdvancedFeatureStore:
         query = """
             SELECT timestamp, feature_name, feature_value
             FROM features
-            WHERE symbol =  AND timeframe = 
+            WHERE symbol = ? AND timeframe = ?
         """
         params = [symbol, timeframe]
 
