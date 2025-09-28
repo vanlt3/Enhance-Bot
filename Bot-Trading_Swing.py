@@ -1583,8 +1583,8 @@ RISK_MANAGEMENT = {
     "MAX_PORTFOLIO_RISK": 0.10,  # 10% max total portfolio risk
     "MAX_OPEN_POSITIONS": 5,     # Maximum number of open positions
     "VOLATILITY_LOOKBACK": 20,   # ATR lookback period
-    "SL_ATR_MULTIPLIER": 1.5,    # Stop losfixTR multiplier
-    "BASE_RR_RATIO": 1.5,        # Base risk-reward ratio
+    "SL_ATR_MULTIPLIER": 2.0,    # Stop loss ATR multiplier
+    "BASE_RR_RATIO": 2.0,        # Base risk-reward ratio
     "TRAILING_STOP_MULTIPLIER": 1.0,  # Trailing stop multiplier
 }
 
@@ -6895,7 +6895,7 @@ class LLMSentimentAnalyzer:
 
         try:
             genai.configure(api_key=api_key)
-            self.model = genai.GenerativeModel('gemini-1.5-flash-latest')
+            self.model = genai.GenerativeModel('gemini-1.5-flash')
             
             # Test the connection with a simple request
             test_response = self.model.generate_content("Test connection")
@@ -14941,8 +14941,10 @@ class EnhancedTradingBot:
             
             # If order was successful, update position tracking
             if success:
-                # Calculate confidence (default for now, should come from signal generation)
-                confidence = 0.6
+                # Pass the actual confidence from signal generation (if available)
+                # For event-driven orders, we should use the actual confidence from the signal
+                # This hardcoded 0.6 is causing the 60% display issue in Discord
+                confidence = getattr(self, 'last_signal_confidence', {}).get(symbol, 0.6)
                 
                 # Create reasoning dict
                 reasoning = {
@@ -16982,6 +16984,11 @@ class EnhancedTradingBot:
                     # L y T+n hi+u tEnsemble model
                     signal, confidence, proba_array = self.get_enhanced_signal(symbol, df_features=df_features)
                     
+                    # Store the actual confidence for later use (fixes 60% display issue)
+                    if not hasattr(self, 'last_signal_confidence'):
+                        self.last_signal_confidence = {}
+                    self.last_signal_confidence[symbol] = confidence
+                    
                     if signal and confidence > ML_CONFIG["MIN_CONFIDENCE_TRADE"]:
                         print(f"   [Ensemble Strategy]  {symbol}: {signal} (Confidence: {confidence:.2%})")
                         await self.handle_position_logic(symbol, signal, confidence)
@@ -17687,7 +17694,7 @@ class EnhancedTradingBot:
         sl_distance_atr = atr_value * sl_atr_multiplier
 
         # 4. Calculate minimum safe SL distance (e.g.: 0.3% of current price)
-        min_safe_sl_distance = current_price * 0.003
+        min_safe_sl_distance = current_price * 0.005
 
         # 5. Use GARCH forecast if available, otherwise use ATR
         if garch_volatility > 0:
