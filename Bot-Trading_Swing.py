@@ -1,4 +1,4 @@
-﻿# Standard library imports
+# Standard library imports
 print("🚀 [Bot] Starting imports...")
 
 # ==================================================
@@ -8473,6 +8473,93 @@ class EnsembleModel:
         self.overfitting_detection = True  # Enable overfitting detection
         self.validation_requirements = "STRICT"  # Strict validation
         self.model_weights = {}  # Dictionary dluu trweights of modelsodels
+        
+        # --- DYNAMIC ENSEMBLE WEIGHTS ---
+        self.performance_history = {}  # Track performance of each model
+        self.model_weights_dynamic = {}  # Dynamic weights based on performance
+        self.performance_window = 50  # Number of recent predictions to track
+        self.min_weight = 0.1  # Minimum weight for any model
+        self.max_weight = 0.8  # Maximum weight for any model
+        self.weight_update_frequency = 10  # Update weights every N predictions
+    
+    def update_performance(self, model_name, outcome):
+        """
+        Update performance tracking for a specific model.
+        outcome: 1 for correct prediction, 0 for incorrect
+        """
+        if model_name not in self.performance_history:
+            self.performance_history[model_name] = []
+        
+        # Add new outcome
+        self.performance_history[model_name].append(outcome)
+        
+        # Keep only recent performance (sliding window)
+        if len(self.performance_history[model_name]) > self.performance_window:
+            self.performance_history[model_name] = self.performance_history[model_name][-self.performance_window:]
+        
+        # Update weights if we have enough data
+        if len(self.performance_history[model_name]) >= self.weight_update_frequency:
+            self._update_dynamic_weights()
+    
+    def _update_dynamic_weights(self):
+        """Update dynamic weights based on recent performance"""
+        if not self.performance_history:
+            return
+        
+        # Calculate performance scores for each model
+        performance_scores = {}
+        for model_name, outcomes in self.performance_history.items():
+            if len(outcomes) > 0:
+                # Calculate win rate
+                win_rate = sum(outcomes) / len(outcomes)
+                # Calculate Sharpe-like ratio (mean / std)
+                if len(outcomes) > 1:
+                    mean_perf = win_rate
+                    std_perf = np.std(outcomes)
+                    sharpe_ratio = mean_perf / (std_perf + 1e-8)  # Add small epsilon to avoid division by zero
+                else:
+                    sharpe_ratio = win_rate
+                
+                # Combine win rate and Sharpe ratio
+                performance_scores[model_name] = 0.7 * win_rate + 0.3 * sharpe_ratio
+            else:
+                performance_scores[model_name] = 0.5  # Default neutral score
+        
+        # Convert performance scores to weights
+        if performance_scores:
+            # Normalize scores to [0, 1]
+            min_score = min(performance_scores.values())
+            max_score = max(performance_scores.values())
+            
+            if max_score > min_score:
+                # Normalize to [0, 1]
+                normalized_scores = {
+                    name: (score - min_score) / (max_score - min_score)
+                    for name, score in performance_scores.items()
+                }
+            else:
+                # All scores are equal, use equal weights
+                normalized_scores = {
+                    name: 1.0 for name in performance_scores.keys()
+                }
+            
+            # Apply min/max weight constraints
+            new_weights = {}
+            for name, score in normalized_scores.items():
+                weight = self.min_weight + (self.max_weight - self.min_weight) * score
+                new_weights[name] = weight
+            
+            # Normalize weights to sum to 1
+            total_weight = sum(new_weights.values())
+            if total_weight > 0:
+                for name in new_weights:
+                    new_weights[name] /= total_weight
+            
+            self.model_weights_dynamic = new_weights
+            
+            # Log weight updates
+            logging.info(f"Dynamic weights updated: {new_weights}")
+    
     def _objective(self, trial, X, y, model_name):
         """
         Function m fromiu dOptuna ti uu ha.
@@ -9157,13 +9244,21 @@ class EnsembleModel:
                 logging.warning("EnsembleModel.predict_proba: No valid predictions from this model")
                 return 0.5
 
-            # Calculate weighted average
-            weights = {'rf': 0.3, 'xgb': 0.4, 'lgb': 0.3}  # Default weights
+            # --- DYNAMIC ENSEMBLE WEIGHTS: SỬ DỤNG TRỌNG SỐ ĐỘNG ---
+            # Sử dụng dynamic weights nếu có, fallback về default weights
+            if self.model_weights_dynamic:
+                weights = self.model_weights_dynamic
+                logging.debug(f"Using dynamic weights: {weights}")
+            else:
+                # Default weights
+                weights = {'rf': 0.3, 'xgb': 0.4, 'lgb': 0.3}
+                logging.debug(f"Using default weights: {weights}")
+            
             weighted_sum = 0.0
             total_weight = 0.0
             
             for name, pred in base_predictions.items():
-                weight = weights.get(name, 0.33)  # Tempty smc dnh data nh
+                weight = weights.get(name, 0.33)  # Fallback weight
                 weighted_sum += pred * weight
                 total_weight += weight
             
@@ -9279,14 +9374,22 @@ class EnsembleModel:
                 logging.warning("EnsembleModel.predict_proba_on_df: No valid predictions from this model")
                 return np.full(len(X_clean), 0.5)
 
-            # Calculate weighted average
-            weights = {'rf': 0.3, 'xgb': 0.4, 'lgb': 0.3}  # Default weights
+            # --- DYNAMIC ENSEMBLE WEIGHTS: SỬ DỤNG TRỌNG SỐ ĐỘNG ---
+            # Sử dụng dynamic weights nếu có, fallback về default weights
+            if self.model_weights_dynamic:
+                weights = self.model_weights_dynamic
+                logging.debug(f"Using dynamic weights for DF: {weights}")
+            else:
+                # Default weights
+                weights = {'rf': 0.3, 'xgb': 0.4, 'lgb': 0.3}
+                logging.debug(f"Using default weights for DF: {weights}")
+            
             weighted_sum = np.zeros(len(X_clean))
             total_weight = 0.0
             
             for i, pred in enumerate(predictions):
                 model_name = list(self.models.keys())[i] if i < len(self.models) else f"model_{i}"
-                weight = weights.get(model_name, 0.33)  # Tempty smc dnh data nh
+                weight = weights.get(model_name, 0.33)  # Fallback weight
                 weighted_sum += pred * weight
                 total_weight += weight
             
@@ -10360,15 +10463,65 @@ class PortfolioEnvironment(gym.Env):
         self.balance += realized_pnl_this_step
         # --- K T THC PH N LOGIC C P NH T ---
 
-        # Ph n tnh ton Function thu ng Sharpe Ratio d used
+        # --- ENHANCED REWARD FUNCTION WITH RISK MANAGEMENT ---
         step_return = (self.balance / previous_balance) - 1 if previous_balance > 0 else 0.0
         self.returns_history.append(step_return)
+        
+        # Base reward calculation
         if len(self.returns_history) > 1:
             risk = np.std(self.returns_history) + 1e-9
             reward = np.mean(self.returns_history) / risk
         else:
             reward = step_return
-        if np.all(action_vector == 0): reward -= 0.001
+        
+        # --- 1. DRAWDOWN PENALTY ---
+        if not hasattr(self, 'peak_balance'):
+            self.peak_balance = self.initial_balance
+        self.peak_balance = max(self.peak_balance, self.balance)
+        
+        current_drawdown = (self.peak_balance - self.balance) / self.peak_balance if self.peak_balance > 0 else 0
+        drawdown_penalty = current_drawdown * 0.1  # 10% penalty for each 1% drawdown
+        reward -= drawdown_penalty
+        
+        # --- 2. TRANSACTION COST PENALTY ---
+        transaction_cost = 0.0005  # 0.05% per transaction
+        num_transactions = np.sum(action_vector != 0)  # Count non-HOLD actions
+        transaction_penalty = num_transactions * transaction_cost
+        reward -= transaction_penalty
+        
+        # --- 3. SORTINO/CALMAR RATIO REWARD ---
+        if len(self.returns_history) > 10:  # Need sufficient history
+            # Calculate Sortino ratio (mean return / downside deviation)
+            returns_array = np.array(self.returns_history)
+            downside_returns = returns_array[returns_array < 0]
+            
+            if len(downside_returns) > 0:
+                downside_deviation = np.std(downside_returns)
+                if downside_deviation > 0:
+                    sortino_ratio = np.mean(returns_array) / downside_deviation
+                    # Reward improvement in Sortino ratio
+                    if not hasattr(self, 'previous_sortino'):
+                        self.previous_sortino = sortino_ratio
+                    sortino_improvement = sortino_ratio - self.previous_sortino
+                    reward += sortino_improvement * 0.1  # Small reward for improvement
+                    self.previous_sortino = sortino_ratio
+            
+            # Calculate Calmar ratio (annual return / max drawdown)
+            if hasattr(self, 'peak_balance') and self.peak_balance > self.initial_balance:
+                annual_return = (self.balance / self.initial_balance) ** (252 / len(self.returns_history)) - 1
+                max_drawdown = (self.peak_balance - min(self.balance, self.initial_balance)) / self.peak_balance
+                if max_drawdown > 0:
+                    calmar_ratio = annual_return / max_drawdown
+                    # Reward improvement in Calmar ratio
+                    if not hasattr(self, 'previous_calmar'):
+                        self.previous_calmar = calmar_ratio
+                    calmar_improvement = calmar_ratio - self.previous_calmar
+                    reward += calmar_improvement * 0.05  # Smaller reward for Calmar improvement
+                    self.previous_calmar = calmar_ratio
+        
+        # --- 4. INACTION PENALTY (existing logic) ---
+        if np.all(action_vector == 0): 
+            reward -= 0.001
 
         self.current_step += 1
         terminated = self.current_step >= self.max_steps - 1
@@ -10384,6 +10537,470 @@ class PortfolioEnvironment(gym.Env):
             # Return a simple visualization as numpy array
             return np.zeros((100, 100, 3), dtype=np.uint8)
         return None
+
+# --- EVENT-DRIVEN ARCHITECTURE ---
+import asyncio
+from dataclasses import dataclass
+from typing import Dict, Any, Optional
+from enum import Enum
+
+class EventType(Enum):
+    MARKET_DATA = "market_data"
+    SIGNAL = "signal"
+    ORDER = "order"
+    POSITION_UPDATE = "position_update"
+    RISK_ALERT = "risk_alert"
+    SYSTEM_HEALTH = "system_health"
+
+@dataclass
+class Event:
+    """Base event class for event-driven architecture"""
+    event_type: EventType
+    timestamp: datetime
+    data: Dict[str, Any]
+    source: str
+    priority: int = 1  # 1=low, 2=medium, 3=high, 4=critical
+
+class MarketDataEvent(Event):
+    """Event for market data updates"""
+    def __init__(self, symbol: str, data: Dict[str, Any], timestamp: datetime = None):
+        super().__init__(
+            event_type=EventType.MARKET_DATA,
+            timestamp=timestamp or datetime.now(),
+            data={'symbol': symbol, **data},
+            source='data_manager',
+            priority=2
+        )
+
+class SignalEvent(Event):
+    """Event for trading signals"""
+    def __init__(self, symbol: str, signal: str, confidence: float, reasoning: Dict[str, Any], timestamp: datetime = None):
+        super().__init__(
+            event_type=EventType.SIGNAL,
+            timestamp=timestamp or datetime.now(),
+            data={
+                'symbol': symbol,
+                'signal': signal,
+                'confidence': confidence,
+                'reasoning': reasoning
+            },
+            source='trading_strategy',
+            priority=3
+        )
+
+class OrderEvent(Event):
+    """Event for order execution"""
+    def __init__(self, symbol: str, action: str, quantity: float, price: float, timestamp: datetime = None):
+        super().__init__(
+            event_type=EventType.ORDER,
+            timestamp=timestamp or datetime.now(),
+            data={
+                'symbol': symbol,
+                'action': action,
+                'quantity': quantity,
+                'price': price
+            },
+            source='order_manager',
+            priority=4
+        )
+
+class EventProcessor:
+    """Base class for event processors"""
+    def __init__(self, name: str):
+        self.name = name
+        self.event_queue = asyncio.Queue()
+        self.running = False
+    
+    async def process_event(self, event: Event):
+        """Process a single event - to be implemented by subclasses"""
+        raise NotImplementedError
+    
+    async def start(self):
+        """Start the event processor"""
+        self.running = True
+        print(f"🚀 {self.name} event processor started")
+        
+        while self.running:
+            try:
+                event = await self.event_queue.get()
+                await self.process_event(event)
+                self.event_queue.task_done()
+            except Exception as e:
+                print(f"❌ Error in {self.name} processor: {e}")
+                await asyncio.sleep(1)
+    
+    async def stop(self):
+        """Stop the event processor"""
+        self.running = False
+        print(f"🛑 {self.name} event processor stopped")
+
+class MarketDataProcessor(EventProcessor):
+    """Processes market data events and generates signals"""
+    def __init__(self, bot_instance):
+        super().__init__("MarketDataProcessor")
+        self.bot = bot_instance
+    
+    async def process_event(self, event: Event):
+        """Process market data and generate signals"""
+        try:
+            symbol = event.data['symbol']
+            market_data = event.data
+            
+            # Generate trading signal using bot's logic
+            signal, confidence, reasoning = self.bot.get_enhanced_signal(symbol)
+            
+            if signal and confidence > 0.5:  # Only process significant signals
+                # Create signal event
+                signal_event = SignalEvent(
+                    symbol=symbol,
+                    signal=signal,
+                    confidence=confidence,
+                    reasoning=reasoning
+                )
+                
+                # Send to signal queue
+                await self.bot.event_coordinator.signal_queue.put(signal_event)
+                
+                print(f"📊 {symbol}: {signal} signal generated (confidence: {confidence:.2f})")
+            
+        except Exception as e:
+            print(f"❌ Error processing market data for {event.data.get('symbol', 'unknown')}: {e}")
+
+class SignalProcessor(EventProcessor):
+    """Processes trading signals and creates orders"""
+    def __init__(self, bot_instance):
+        super().__init__("SignalProcessor")
+        self.bot = bot_instance
+    
+    async def process_event(self, event: Event):
+        """Process trading signal and create order"""
+        try:
+            symbol = event.data['symbol']
+            signal = event.data['signal']
+            confidence = event.data['confidence']
+            
+            # Get current price
+            current_price = self.bot.data_manager.get_current_price(symbol)
+            if not current_price:
+                print(f"⚠️ No current price available for {symbol}")
+                return
+            
+            # Calculate position size based on risk management
+            position_size = self.bot.risk_manager.calculate_position_size(
+                symbol, signal, current_price, confidence
+            )
+            
+            if position_size > 0:
+                # Create order event
+                order_event = OrderEvent(
+                    symbol=symbol,
+                    action=signal,
+                    quantity=position_size,
+                    price=current_price
+                )
+                
+                # Send to order queue
+                await self.bot.event_coordinator.order_queue.put(order_event)
+                
+                print(f"📋 {symbol}: {signal} order created (size: {position_size:.2f})")
+            
+        except Exception as e:
+            print(f"❌ Error processing signal for {event.data.get('symbol', 'unknown')}: {e}")
+
+class OrderProcessor(EventProcessor):
+    """Processes orders and executes trades"""
+    def __init__(self, bot_instance):
+        super().__init__("OrderProcessor")
+        self.bot = bot_instance
+    
+    async def process_event(self, event: Event):
+        """Process order and execute trade"""
+        try:
+            symbol = event.data['symbol']
+            action = event.data['action']
+            quantity = event.data['quantity']
+            price = event.data['price']
+            
+            # Execute the trade
+            success = await self.bot.execute_trade(symbol, action, quantity, price)
+            
+            if success:
+                print(f"✅ {symbol}: {action} order executed successfully")
+                
+                # Update position tracking
+                position_event = Event(
+                    event_type=EventType.POSITION_UPDATE,
+                    timestamp=datetime.now(),
+                    data={
+                        'symbol': symbol,
+                        'action': action,
+                        'quantity': quantity,
+                        'price': price
+                    },
+                    source='order_processor',
+                    priority=2
+                )
+                
+                await self.bot.event_coordinator.position_queue.put(position_event)
+            else:
+                print(f"❌ {symbol}: {action} order execution failed")
+            
+        except Exception as e:
+            print(f"❌ Error executing order for {event.data.get('symbol', 'unknown')}: {e}")
+
+class EventCoordinator:
+    """Coordinates all event processors"""
+    def __init__(self, bot_instance):
+        self.bot = bot_instance
+        
+        # Event queues
+        self.market_data_queue = asyncio.Queue()
+        self.signal_queue = asyncio.Queue()
+        self.order_queue = asyncio.Queue()
+        self.position_queue = asyncio.Queue()
+        
+        # Event processors
+        self.market_data_processor = MarketDataProcessor(bot_instance)
+        self.signal_processor = SignalProcessor(bot_instance)
+        self.order_processor = OrderProcessor(bot_instance)
+        
+        # Processor tasks
+        self.processor_tasks = []
+    
+    async def start(self):
+        """Start all event processors"""
+        print("🚀 Starting event-driven architecture...")
+        
+        # Start processors
+        self.processor_tasks = [
+            asyncio.create_task(self.market_data_processor.start()),
+            asyncio.create_task(self.signal_processor.start()),
+            asyncio.create_task(self.order_processor.start())
+        ]
+        
+        # Connect queues to processors
+        await self._connect_queues()
+        
+        print("✅ Event-driven architecture started")
+    
+    async def _connect_queues(self):
+        """Connect event queues to processors"""
+        # Market data processor
+        asyncio.create_task(self._forward_events(
+            self.market_data_queue, 
+            self.market_data_processor.event_queue
+        ))
+        
+        # Signal processor
+        asyncio.create_task(self._forward_events(
+            self.signal_queue, 
+            self.signal_processor.event_queue
+        ))
+        
+        # Order processor
+        asyncio.create_task(self._forward_events(
+            self.order_queue, 
+            self.order_processor.event_queue
+        ))
+    
+    async def _forward_events(self, source_queue, target_queue):
+        """Forward events from source to target queue"""
+        while True:
+            try:
+                event = await source_queue.get()
+                await target_queue.put(event)
+                source_queue.task_done()
+            except Exception as e:
+                print(f"❌ Error forwarding events: {e}")
+                await asyncio.sleep(1)
+    
+    async def stop(self):
+        """Stop all event processors"""
+        print("🛑 Stopping event-driven architecture...")
+        
+        # Stop processors
+        for processor in [self.market_data_processor, self.signal_processor, self.order_processor]:
+            await processor.stop()
+        
+        # Cancel tasks
+        for task in self.processor_tasks:
+            task.cancel()
+        
+        print("✅ Event-driven architecture stopped")
+
+# --- HIERARCHICAL RL: MASTER AGENT ---
+class MasterRLAgent:
+    """
+    Master Agent quản lý mức độ chấp nhận rủi ro cho toàn bộ danh mục
+    Action space: [0.0, 1.0] - Mức độ chấp nhận rủi ro
+    """
+    def __init__(self, model_path=None):
+        self.model = None
+        self.risk_level = 0.5  # Default risk level
+        self.performance_history = deque(maxlen=100)
+        self.risk_history = deque(maxlen=50)
+        
+        if model_path and os.path.exists(model_path):
+            self.model = PPO.load(model_path)
+            print(f"✅ Master RL Agent loaded from {model_path}")
+        else:
+            print("🤖 Master RL Agent not loaded. Needs to be trained.")
+    
+    def predict_risk_level(self, portfolio_state):
+        """
+        Predict optimal risk level based on portfolio state
+        portfolio_state: [total_balance, num_positions, avg_volatility, trending_ratio]
+        """
+        if not self.model:
+            return 0.5  # Default risk level
+        
+        try:
+            # Normalize portfolio state
+            normalized_state = np.array(portfolio_state, dtype=np.float32)
+            
+            # Predict risk level (continuous action)
+            action, _ = self.model.predict(normalized_state, deterministic=True)
+            risk_level = np.clip(action, 0.0, 1.0)
+            
+            self.risk_level = risk_level
+            self.risk_history.append(risk_level)
+            
+            return risk_level
+        except Exception as e:
+            logging.error(f"Master Agent prediction error: {e}")
+            return 0.5
+    
+    def update_performance(self, portfolio_return, drawdown):
+        """Update performance based on portfolio results"""
+        # Reward for good returns with controlled risk
+        if drawdown < 0.05:  # Low drawdown
+            performance_score = portfolio_return * 2
+        else:
+            performance_score = portfolio_return / (1 + drawdown)
+        
+        self.performance_history.append(performance_score)
+
+# --- HIERARCHICAL RL: WORKER AGENT ---
+class WorkerRLAgent:
+    """
+    Worker Agent quản lý giao dịch cho một tài sản cụ thể
+    Action space: [0, 1, 2] - [HOLD, BUY, SELL]
+    """
+    def __init__(self, symbol, model_path=None):
+        self.symbol = symbol
+        self.model = None
+        self.risk_adjusted_threshold = 0.6  # Default threshold
+        self.trade_history = deque(maxlen=100)
+        
+        if model_path and os.path.exists(model_path):
+            self.model = PPO.load(model_path)
+            print(f"✅ Worker RL Agent for {symbol} loaded from {model_path}")
+        else:
+            print(f"🤖 Worker RL Agent for {symbol} not loaded. Needs to be trained.")
+    
+    def predict_action(self, market_state, risk_level):
+        """
+        Predict trading action based on market state and risk level
+        market_state: [price_features, technical_indicators, position_info]
+        risk_level: [0.0, 1.0] from Master Agent
+        """
+        if not self.model:
+            return 0  # Default to HOLD
+        
+        try:
+            # Combine market state with risk level
+            combined_state = np.append(market_state, [risk_level])
+            
+            # Predict action
+            action, _ = self.model.predict(combined_state, deterministic=True)
+            action_code = int(action)
+            
+            # Adjust action based on risk level
+            if risk_level < 0.3:  # Low risk - be conservative
+                if action_code == 1:  # BUY
+                    action_code = 0  # Convert to HOLD
+            elif risk_level > 0.7:  # High risk - be aggressive
+                if action_code == 0:  # HOLD
+                    action_code = 1  # Convert to BUY (if market conditions allow)
+            
+            return np.clip(action_code, 0, 2)
+        except Exception as e:
+            logging.error(f"Worker Agent {self.symbol} prediction error: {e}")
+            return 0
+    
+    def update_trade_result(self, action, market_return, risk_level):
+        """Update trade history with results"""
+        trade_result = {
+            'action': action,
+            'return': market_return,
+            'risk_level': risk_level,
+            'timestamp': len(self.trade_history)
+        }
+        self.trade_history.append(trade_result)
+
+# --- HIERARCHICAL RL: COORDINATOR ---
+class HierarchicalRLCoordinator:
+    """
+    Coordinator quản lý Master và Worker Agents
+    """
+    def __init__(self, symbols, master_model_path=None, worker_model_paths=None):
+        self.symbols = symbols
+        self.master_agent = MasterRLAgent(master_model_path)
+        self.worker_agents = {}
+        
+        # Initialize worker agents
+        for symbol in symbols:
+            worker_path = worker_model_paths.get(symbol) if worker_model_paths else None
+            self.worker_agents[symbol] = WorkerRLAgent(symbol, worker_path)
+        
+        self.portfolio_state = {
+            'total_balance': 10000,
+            'num_positions': 0,
+            'avg_volatility': 0.02,
+            'trending_ratio': 0.5
+        }
+    
+    def get_portfolio_decisions(self, market_data_dict):
+        """
+        Get trading decisions for all symbols using hierarchical approach
+        """
+        try:
+            # 1. Master Agent: Determine risk level
+            portfolio_state = [
+                self.portfolio_state['total_balance'] / 10000,  # Normalized balance
+                self.portfolio_state['num_positions'] / len(self.symbols),  # Position ratio
+                self.portfolio_state['avg_volatility'],
+                self.portfolio_state['trending_ratio']
+            ]
+            
+            risk_level = self.master_agent.predict_risk_level(portfolio_state)
+            
+            # 2. Worker Agents: Get individual decisions
+            decisions = {}
+            for symbol, worker_agent in self.worker_agents.items():
+                if symbol in market_data_dict:
+                    market_state = market_data_dict[symbol]
+                    action = worker_agent.predict_action(market_state, risk_level)
+                    decisions[symbol] = action
+                else:
+                    decisions[symbol] = 0  # HOLD if no data
+            
+            return decisions, risk_level
+            
+        except Exception as e:
+            logging.error(f"Hierarchical RL Coordinator error: {e}")
+            # Fallback to HOLD for all symbols
+            return {symbol: 0 for symbol in self.symbols}, 0.5
+    
+    def update_portfolio_state(self, balance, positions, volatility, trending_ratio):
+        """Update portfolio state for next decision"""
+        self.portfolio_state.update({
+            'total_balance': balance,
+            'num_positions': positions,
+            'avg_volatility': volatility,
+            'trending_ratio': trending_ratio
+        })
+
 # --- NEW: RL AGENT CLASS ---
 class RLAgent:
     def __init__(self, model_path=None):
@@ -15732,23 +16349,34 @@ class EnhancedTradingBot:
                     return None, 0.0, None
 
             current_regime = df_features['market_regime'].iloc[-1]
-
-            # --- BU C 2: CH N NG MODEL D A TRN Tempty THI ---
-            if current_regime != 0:  # Th trung c xu hung
-                model_data = self.trending_models.get(symbol)
-            else:  # Th trung di ngang
-                model_data = self.ranging_models.get(symbol)
-
-            # --- BU C 3: Check MODEL V TI P T C LOGIC ---
-            if model_data is None:
-                logging.warning(f"get_enhanced_signal: No suitable model found for {symbol} (Regime: {current_regime})")
+            
+            # --- BU C 2: SOFT REGIME SWITCHING - TÍNH REGIME CONFIDENCE ---
+            # Lấy trend_strength từ features để tính regime confidence
+            latest_features = df_features.iloc[-1]
+            trend_strength = abs(latest_features.get("trend_strength", 0))
+            
+            # Tính regime confidence score từ 0 đến 1
+            # Chuẩn hóa trend_strength (giả sử max reasonable value là 5.0)
+            regime_confidence = min(trend_strength / 5.0, 1.0)
+            
+            # --- BU C 3: LẤY DỰ ĐOÁN TỪ CẢ HAI MÔ HÌNH ---
+            trending_model_data = self.trending_models.get(symbol)
+            ranging_model_data = self.ranging_models.get(symbol)
+            
+            # Kiểm tra cả hai mô hình có sẵn
+            if trending_model_data is None and ranging_model_data is None:
+                logging.warning(f"get_enhanced_signal: No models found for {symbol}")
                 return None, 0.0, None
-
-            model = model_data.get("ensemble")
-            feature_columns = model_data.get("feature_columns")
-
-            if not model or not feature_columns:
-                logging.warning(f"get_enhanced_signal: Model Or feature_columns not hợp lệ cho {symbol}")
+            
+            # Lấy feature columns từ mô hình có sẵn (ưu tiên trending nếu có)
+            feature_columns = None
+            if trending_model_data:
+                feature_columns = trending_model_data.get("feature_columns")
+            elif ranging_model_data:
+                feature_columns = ranging_model_data.get("feature_columns")
+            
+            if not feature_columns:
+                logging.warning(f"get_enhanced_signal: No feature_columns found for {symbol}")
                 return None, 0.0, None
 
             # Pipeline clean data more (original logic old of b n)
@@ -15780,28 +16408,55 @@ class EnhancedTradingBot:
             #  m b o not needsaN values
             X_ordered = X_ordered.fillna(0.0)
 
-            # Equal with model
+            # --- BU C 4: SOFT REGIME SWITCHING - DỰ ĐOÁN VÀ KẾT HỢP ---
             try:
-                # Check if model l EnsembleModel
-                if hasattr(model, 'predict_proba') and hasattr(model, 'models'):
-                    # EnsembleModel chreceive 1 tham s 
-                    prob_buy = model.predict_proba(X_ordered)
-                else:
-                    # Model thng thu ng
-                    prob_buy = model.predict_proba(X_ordered)
+                # Lấy dự đoán từ trending model (nếu có)
+                trending_prob = 0.5  # Default neutral
+                if trending_model_data and trending_model_data.get("ensemble"):
+                    trending_model = trending_model_data.get("ensemble")
+                    if hasattr(trending_model, 'predict_proba'):
+                        trending_pred = trending_model.predict_proba(X_ordered)
+                        if isinstance(trending_pred, np.ndarray):
+                            if len(trending_pred.shape) > 1:
+                                trending_prob = trending_pred[0, 1] if trending_pred.shape[1] > 1 else trending_pred[0, 0]
+                            else:
+                                trending_prob = trending_pred[0]
+                        else:
+                            trending_prob = float(trending_pred)
+                
+                # Lấy dự đoán từ ranging model (nếu có)
+                ranging_prob = 0.5  # Default neutral
+                if ranging_model_data and ranging_model_data.get("ensemble"):
+                    ranging_model = ranging_model_data.get("ensemble")
+                    if hasattr(ranging_model, 'predict_proba'):
+                        ranging_pred = ranging_model.predict_proba(X_ordered)
+                        if isinstance(ranging_pred, np.ndarray):
+                            if len(ranging_pred.shape) > 1:
+                                ranging_prob = ranging_pred[0, 1] if ranging_pred.shape[1] > 1 else ranging_pred[0, 0]
+                            else:
+                                ranging_prob = ranging_pred[0]
+                        else:
+                            ranging_prob = float(ranging_pred)
+                
+                # --- KẾT HỢP CÓ TRỌNG SỐ DỰA TRÊN REGIME CONFIDENCE ---
+                if current_regime != 0:  # Trending regime
+                    # Trending model có trọng số cao hơn khi regime confidence cao
+                    final_prob = (trending_prob * regime_confidence) + (ranging_prob * (1 - regime_confidence))
+                else:  # Ranging regime
+                    # Ranging model có trọng số cao hơn khi regime confidence thấp
+                    final_prob = (ranging_prob * (1 - regime_confidence)) + (trending_prob * regime_confidence)
+                
+                # Fallback nếu chỉ có một mô hình
+                if trending_model_data is None:
+                    final_prob = ranging_prob
+                elif ranging_model_data is None:
+                    final_prob = trending_prob
+                
+                prob_buy = final_prob
                 
                 if prob_buy is None:
-                    logging.warning(f"get_enhanced_signal: Model trߦ v+ None cho {symbol}")
+                    logging.warning(f"get_enhanced_signal: Model trả về None cho {symbol}")
                     return None, 0.0, None
-                
-                # processing k t quEqual
-                if isinstance(prob_buy, np.ndarray):
-                    if len(prob_buy.shape) > 1:
-                        prob_buy = prob_buy[0, 1] if prob_buy.shape[1] > 1 else prob_buy[0, 0]
-                    else:
-                        prob_buy = prob_buy[0]
-                else:
-                    prob_buy = float(prob_buy)
                 
                 # Apply confidence smoothing
                 prob_buy_smoothed = np.clip(prob_buy, 0.05, 0.95)
@@ -15823,7 +16478,7 @@ class EnhancedTradingBot:
                     signal = "HOLD"
                     confidence = 0.5
                 
-                logging.info(f"get_enhanced_signal: {symbol} - Signal: {signal}, Confidence: {confidence:.3f}, Raw: {prob_buy:.3f}")
+                logging.info(f"get_enhanced_signal: {symbol} - Signal: {signal}, Confidence: {confidence:.3f}, Raw: {prob_buy:.3f}, Regime: {current_regime}, RegimeConf: {regime_confidence:.3f}, Trending: {trending_prob:.3f}, Ranging: {ranging_prob:.3f}")
                 
                 if for_open_position_check:
                     return None, float(confidence), None
@@ -16605,15 +17260,28 @@ class EnhancedTradingBot:
 
         sl_atr_multiplier = RISK_MANAGEMENT.get("SL_ATR_MULTIPLIER", 1.5)
 
-        # --- LOGIofN TON M I ---
-        # 1. Calculate SL distance based on ATR
+        # --- GARCH VOLATILITY FORECASTING ---
+        # 1. Get GARCH forecasted volatility
+        garch_volatility = self._forecast_volatility(symbol)
+        
+        # 2. Calculate SL distance based on GARCH forecast
+        sl_distance_garch = current_price * garch_volatility * sl_atr_multiplier
+        
+        # 3. Calculate SL distance based on ATR (fallback)
         sl_distance_atr = atr_value * sl_atr_multiplier
 
-        # 2. Calculate minimum safe SL distance (e.g.: 0.3% of current price)
+        # 4. Calculate minimum safe SL distance (e.g.: 0.3% of current price)
         min_safe_sl_distance = current_price * 0.003
 
-        # 3. Ch n kho ng allh l n hon dlm SL cu cng
-        sl_distance = max(sl_distance_atr, min_safe_sl_distance)
+        # 5. Use GARCH forecast if available, otherwise use ATR
+        if garch_volatility > 0:
+            sl_distance = max(sl_distance_garch, min_safe_sl_distance)
+            volatility_source = "GARCH"
+        else:
+            sl_distance = max(sl_distance_atr, min_safe_sl_distance)
+            volatility_source = "ATR"
+        
+        print(f"    [Risk] Volatility forecast for {symbol}: {garch_volatility:.4f} ({volatility_source})")
         # --- K T THC LOGIofN TON ---
 
         base_rr_ratio = RISK_MANAGEMENT.get("BASE_RR_RATIO", 1.5)
@@ -18697,10 +19365,14 @@ class EnhancedTradingBot:
         }
         self.send_discord_alert(" **Advanced Bot Started Successfully!**", "SUCCESS", "NORMAL", startup_data)
 
+        # Initialize event-driven architecture
+        self.event_coordinator = EventCoordinator(self)
+        await self.event_coordinator.start()
+        
         while True:
             try:
-                # Execute main bot cycle
-                await self._execute_bot_cycle(is_first_run)
+                # Execute main bot cycle with event-driven architecture
+                await self._execute_bot_cycle_event_driven(is_first_run)
                 is_first_run = False
                 
             except KeyboardInterrupt:
@@ -18722,6 +19394,46 @@ class EnhancedTradingBot:
                 }
                 self.send_discord_alert(f" **Critical Bot Error**\n{str(e)}", "CRITICAL", "HIGH", error_data)
                 await asyncio.sleep(60)  # Wait before retry
+        
+        # Stop event coordinator on exit
+        await self.event_coordinator.stop()
+
+    async def _execute_bot_cycle_event_driven(self, is_first_run):
+        """Execute bot cycle using event-driven architecture"""
+        try:
+            # 1. System health checks
+            await self._perform_system_health_checks()
+            
+            # 2. Wait for proper timing
+            await self._handle_timing_logic(is_first_run)
+            
+            # 3. Model management
+            await self._handle_model_management()
+            
+            # 4. Data management - generate market data events
+            live_data_cache = await self._handle_data_management()
+            
+            # 5. Send market data events to event queue
+            for symbol, df_features in live_data_cache.items():
+                if df_features is not None and not df_features.empty:
+                    market_data_event = MarketDataEvent(
+                        symbol=symbol,
+                        data={'features': df_features.to_dict()}
+                    )
+                    await self.event_coordinator.market_data_queue.put(market_data_event)
+            
+            # 6. Position management
+            await self._handle_position_management(live_data_cache)
+            
+            # 7. Master Agent trailing stop management
+            self._apply_master_agent_trailing_stops()
+            
+            # 8. Wait for event processing
+            await asyncio.sleep(1)  # Allow events to be processed
+            
+        except Exception as e:
+            logger.error(f"Error in event-driven bot cycle: {e}")
+            print(f"Error in event-driven bot cycle: {e}")
 
     async def _execute_bot_cycle(self, is_first_run):
         """Execute one complete bot cycle"""
@@ -19275,6 +19987,59 @@ class EnhancedTradingBot:
         for key, value in list(reasoning_data.items())[:3]:  # Show first 3 items
             print(f"   - {key}: {value}")
         
+        # --- MULTIMODAL LLM INTEGRATION: THÊM KEY MARKET METRICS ---
+        # Lấy dữ liệu features để tạo Key Market Metrics
+        df_features = self.data_manager.create_enhanced_features(symbol)
+        key_metrics_text = "No market data available."
+        
+        if df_features is not None and not df_features.empty:
+            latest = df_features.iloc[-1]
+            
+            # Tạo Key Market Metrics từ các chỉ số quan trọng
+            metrics = []
+            
+            # RSI
+            rsi_14 = latest.get('rsi_14', 0)
+            if rsi_14 > 0:
+                metrics.append(f"RSI (14): {rsi_14:.1f}")
+            
+            # ATR Normalized
+            atr = latest.get('atr', 0)
+            close_price = latest.get('close', 1)
+            if atr > 0 and close_price > 0:
+                atr_normalized = (atr / close_price) * 100
+                metrics.append(f"ATR (Normalized %): {atr_normalized:.2f}%")
+            
+            # Distance to EMA-200
+            ema_200 = latest.get('ema_200', 0)
+            if ema_200 > 0 and close_price > 0:
+                distance_ema200 = ((close_price - ema_200) / ema_200) * 100
+                metrics.append(f"Distance to EMA-200: {distance_ema200:+.1f}%")
+            
+            # Volume Ratio
+            volume = latest.get('volume', 0)
+            volume_ema = latest.get('volume_ema', 0)
+            if volume > 0 and volume_ema > 0:
+                volume_ratio = volume / volume_ema
+                metrics.append(f"Volume Ratio (vs 20-period avg): {volume_ratio:.1f}x")
+            
+            # MACD Signal
+            macd = latest.get('macd', 0)
+            macd_signal = latest.get('macd_signal', 0)
+            if macd != 0 and macd_signal != 0:
+                macd_diff = macd - macd_signal
+                metrics.append(f"MACD Signal: {macd_diff:+.4f}")
+            
+            # Bollinger Bands Position
+            bb_upper = latest.get('bb_upper', 0)
+            bb_lower = latest.get('bb_lower', 0)
+            if bb_upper > 0 and bb_lower > 0 and close_price > 0:
+                bb_position = ((close_price - bb_lower) / (bb_upper - bb_lower)) * 100
+                metrics.append(f"Bollinger Bands Position: {bb_position:.1f}%")
+            
+            if metrics:
+                key_metrics_text = "\n".join([f"- {metric}" for metric in metrics])
+        
         # Tạo prompt chi tiết với logic cân bằng hơn
         prompt = f"""
 Bạn là Giám đốc Quản lý Rủi ro (CRO) của một quỹ đầu tư.
@@ -19289,13 +20054,18 @@ Related News:
 NHIỆM VỤ 2: XEM XÉT LUẬN ĐIỂM KỸ THUẬT
 {reasoning_text}
 
-NHIỆM VỤ 3: RA QUYẾT ĐỊNH CUỐI CÙNG
-Dựa trên phân tích, hãy đưa ra quyết định cuối cùng.
+NHIỆM VỤ 3: PHÂN TÍCH CHỈ SỐ THỊ TRƯỜNG CHÍNH
+Key Market Metrics:
+{key_metrics_text}
+
+NHIỆM VỤ 4: RA QUYẾT ĐỊNH CUỐI CÙNG
+Dựa trên phân tích tổng hợp cả tin tức, luận điểm kỹ thuật và các chỉ số thị trường chính, hãy đưa ra quyết định cuối cùng.
 
 **QUAN TRỌNG:** 
 - Nếu không có tin tức tiêu cực và tín hiệu kỹ thuật mạnh (confidence > 50%), nên APPROVE
 - Chỉ REJECT khi có tin tức tiêu cực rõ ràng hoặc tín hiệu kỹ thuật yếu
 - Crypto markets thường giao dịch dựa trên technical analysis khi không có news
+- Xem xét cả các chỉ số thị trường để đánh giá toàn diện
 
 Chỉ trả về duy nhất một khối JSON với định dạng sau:
 {{
@@ -19730,6 +20500,57 @@ class AdvancedRiskManager:
             await self.observability.send_discord_alert(violation_msg, "WARNING")
 
         return validation_result
+    
+    def _forecast_volatility(self, symbol):
+        """
+        Forecast volatility using GARCH(1,1) model for tail risk prediction
+        """
+        try:
+            # Import arch library
+            try:
+                from arch import arch_model
+            except ImportError:
+                print("Warning: arch library not installed. Install with: pip install arch")
+                return 0.0
+            
+            # Get historical data for returns calculation
+            df_primary_tf = self.data_manager.fetch_multi_timeframe_data(
+                symbol, count=250, timeframes_to_use=[PRIMARY_TIMEFRAME]
+            ).get(PRIMARY_TIMEFRAME)
+            
+            if df_primary_tf is None or len(df_primary_tf) < 100:
+                print(f"Warning: Insufficient data for GARCH forecasting for {symbol}")
+                return 0.0
+            
+            # Calculate daily returns
+            returns = df_primary_tf['close'].pct_change().dropna()
+            
+            if len(returns) < 50:
+                print(f"Warning: Insufficient returns data for GARCH forecasting for {symbol}")
+                return 0.0
+            
+            # Fit GARCH(1,1) model
+            model = arch_model(returns, vol='Garch', p=1, q=1)
+            
+            # Fit the model with error handling
+            try:
+                fitted_model = model.fit(disp='off', show_warning=False)
+            except Exception as e:
+                print(f"Warning: GARCH model fitting failed for {symbol}: {e}")
+                return 0.0
+            
+            # Forecast volatility for next period
+            forecast = fitted_model.forecast(horizon=1)
+            forecasted_volatility = float(forecast.variance.iloc[-1, 0] ** 0.5)
+            
+            # Ensure reasonable volatility range (0.1% to 10%)
+            forecasted_volatility = max(0.001, min(0.10, forecasted_volatility))
+            
+            return forecasted_volatility
+            
+        except Exception as e:
+            print(f"Error in GARCH volatility forecasting for {symbol}: {e}")
+            return 0.0
 
 class PortfolioRiskManager:
     """
@@ -19743,9 +20564,62 @@ class PortfolioRiskManager:
 
     def update_correlation_matrix(self, force_update=False):
         """
-        Calculate and save correlation matrix based on daily returns.
+        Calculate and save correlation matrix using EWMA (Exponentially Weighted Moving Average)
+        for dynamic correlation that emphasizes recent data.
         """
         now = datetime.now()
+        
+        # Check if update is needed (every 4 hours)
+        if not force_update and self.last_update_time:
+            time_diff = (now - self.last_update_time).total_seconds()
+            if time_diff < 4 * 3600:  # 4 hours
+                return
+        
+        try:
+            # Get returns data for all symbols
+            all_returns = {}
+            for symbol in self.symbols:
+                df_tf = self.data_manager.fetch_multi_timeframe_data(
+                    symbol, count=500, timeframes_to_use=['D1']
+                ).get('D1')
+                if df_tf is not None and not df_tf.empty:
+                    all_returns[symbol] = df_tf['close'].pct_change().dropna()
+            
+            if not all_returns:
+                print("Warning: No returns data available for correlation matrix")
+                return
+            
+            # Align to common index
+            returns_df = pd.DataFrame(all_returns).dropna(how='all').fillna(0)
+            
+            if len(returns_df) < 30:
+                print("Warning: Insufficient data for correlation matrix")
+                return
+            
+            # --- DYNAMIC CORRELATION WITH EWMA ---
+            # Use EWMA with com=60 (equivalent to ~60 days of data with exponential weighting)
+            # This gives more weight to recent correlations
+            self.correlation_matrix = returns_df.ewm(com=60, min_periods=30).corr()
+            
+            # Get the latest correlation matrix (last timestamp)
+            if hasattr(self.correlation_matrix, 'iloc'):
+                # For multi-level index, get the last level
+                latest_corr = self.correlation_matrix.iloc[-len(self.symbols):]
+                self.correlation_matrix = latest_corr
+            
+            self.last_update_time = now
+            print(f"[Risk Manager] Dynamic correlation matrix updated using EWMA (com=60)")
+            
+        except Exception as e:
+            print(f"Error updating dynamic correlation matrix: {e}")
+            # Fallback to simple correlation
+            try:
+                returns_df = pd.DataFrame(all_returns).dropna(how='all').fillna(0)
+                self.correlation_matrix = returns_df.corr()
+                self.last_update_time = now
+                print("[Risk Manager] Fallback to simple correlation matrix")
+            except Exception as e2:
+                print(f"Fallback correlation update also failed: {e2}")
 
     # === Hybridorrelation: long (D1) + short (H1/H4) ===
     def _compute_corr(self, timeframe='D1', lookback=250):

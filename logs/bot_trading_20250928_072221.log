@@ -1,0 +1,9 @@
+2025-09-28 07:22:26,549 | DEBUG    | h5py._conv           | <module>       :47   | Creating converter from 7 to 5
+2025-09-28 07:22:26,549 | DEBUG    | h5py._conv           | <module>       :47   | Creating converter from 5 to 7
+2025-09-28 07:22:26,549 | DEBUG    | h5py._conv           | <module>       :47   | Creating converter from 7 to 5
+2025-09-28 07:22:26,549 | DEBUG    | h5py._conv           | <module>       :47   | Creating converter from 5 to 7
+2025-09-28 07:22:33,084 | [33m⚠️ WARNING[0m | 📋 root               | <module>       :2061 | tradingeconomics package not available. Economic calendar features will be limited.
+2025-09-28 07:22:33,085 | [33m⚠️ WARNING[0m | 📋 root               | <module>       :2074 | optuna not available. Hyperparameter optimization will be limited.
+2025-09-28 07:22:33,085 | [33m⚠️ WARNING[0m | 📋 root               | <module>       :2083 | optuna integrations not available. Some optimization features disabled.
+2025-09-28 07:22:33,085 | [33m⚠️ WARNING[0m | 📋 root               | <module>       :2091 | eod package not available. EODHD news provider will be disabled.
+2025-09-28 07:22:33,085 | [33m⚠️ WARNING[0m | 📋 root               | <module>       :2098 | newsapi package not available. NewsAPI provider will be disabled.
