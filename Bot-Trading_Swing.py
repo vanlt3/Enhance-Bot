@@ -10463,15 +10463,65 @@ class PortfolioEnvironment(gym.Env):
         self.balance += realized_pnl_this_step
         # --- K T THC PH N LOGIC C P NH T ---
 
-        # Ph n tnh ton Function thu ng Sharpe Ratio d used
+        # --- ENHANCED REWARD FUNCTION WITH RISK MANAGEMENT ---
         step_return = (self.balance / previous_balance) - 1 if previous_balance > 0 else 0.0
         self.returns_history.append(step_return)
+        
+        # Base reward calculation
         if len(self.returns_history) > 1:
             risk = np.std(self.returns_history) + 1e-9
             reward = np.mean(self.returns_history) / risk
         else:
             reward = step_return
-        if np.all(action_vector == 0): reward -= 0.001
+        
+        # --- 1. DRAWDOWN PENALTY ---
+        if not hasattr(self, 'peak_balance'):
+            self.peak_balance = self.initial_balance
+        self.peak_balance = max(self.peak_balance, self.balance)
+        
+        current_drawdown = (self.peak_balance - self.balance) / self.peak_balance if self.peak_balance > 0 else 0
+        drawdown_penalty = current_drawdown * 0.1  # 10% penalty for each 1% drawdown
+        reward -= drawdown_penalty
+        
+        # --- 2. TRANSACTION COST PENALTY ---
+        transaction_cost = 0.0005  # 0.05% per transaction
+        num_transactions = np.sum(action_vector != 0)  # Count non-HOLD actions
+        transaction_penalty = num_transactions * transaction_cost
+        reward -= transaction_penalty
+        
+        # --- 3. SORTINO/CALMAR RATIO REWARD ---
+        if len(self.returns_history) > 10:  # Need sufficient history
+            # Calculate Sortino ratio (mean return / downside deviation)
+            returns_array = np.array(self.returns_history)
+            downside_returns = returns_array[returns_array < 0]
+            
+            if len(downside_returns) > 0:
+                downside_deviation = np.std(downside_returns)
+                if downside_deviation > 0:
+                    sortino_ratio = np.mean(returns_array) / downside_deviation
+                    # Reward improvement in Sortino ratio
+                    if not hasattr(self, 'previous_sortino'):
+                        self.previous_sortino = sortino_ratio
+                    sortino_improvement = sortino_ratio - self.previous_sortino
+                    reward += sortino_improvement * 0.1  # Small reward for improvement
+                    self.previous_sortino = sortino_ratio
+            
+            # Calculate Calmar ratio (annual return / max drawdown)
+            if hasattr(self, 'peak_balance') and self.peak_balance > self.initial_balance:
+                annual_return = (self.balance / self.initial_balance) ** (252 / len(self.returns_history)) - 1
+                max_drawdown = (self.peak_balance - min(self.balance, self.initial_balance)) / self.peak_balance
+                if max_drawdown > 0:
+                    calmar_ratio = annual_return / max_drawdown
+                    # Reward improvement in Calmar ratio
+                    if not hasattr(self, 'previous_calmar'):
+                        self.previous_calmar = calmar_ratio
+                    calmar_improvement = calmar_ratio - self.previous_calmar
+                    reward += calmar_improvement * 0.05  # Smaller reward for Calmar improvement
+                    self.previous_calmar = calmar_ratio
+        
+        # --- 4. INACTION PENALTY (existing logic) ---
+        if np.all(action_vector == 0): 
+            reward -= 0.001
 
         self.current_step += 1
         terminated = self.current_step >= self.max_steps - 1
@@ -10487,6 +10537,470 @@ class PortfolioEnvironment(gym.Env):
             # Return a simple visualization as numpy array
             return np.zeros((100, 100, 3), dtype=np.uint8)
         return None
+
+# --- EVENT-DRIVEN ARCHITECTURE ---
+import asyncio
+from dataclasses import dataclass
+from typing import Dict, Any, Optional
+from enum import Enum
+
+class EventType(Enum):
+    MARKET_DATA = "market_data"
+    SIGNAL = "signal"
+    ORDER = "order"
+    POSITION_UPDATE = "position_update"
+    RISK_ALERT = "risk_alert"
+    SYSTEM_HEALTH = "system_health"
+
+@dataclass
+class Event:
+    """Base event class for event-driven architecture"""
+    event_type: EventType
+    timestamp: datetime
+    data: Dict[str, Any]
+    source: str
+    priority: int = 1  # 1=low, 2=medium, 3=high, 4=critical
+
+class MarketDataEvent(Event):
+    """Event for market data updates"""
+    def __init__(self, symbol: str, data: Dict[str, Any], timestamp: datetime = None):
+        super().__init__(
+            event_type=EventType.MARKET_DATA,
+            timestamp=timestamp or datetime.now(),
+            data={'symbol': symbol, **data},
+            source='data_manager',
+            priority=2
+        )
+
+class SignalEvent(Event):
+    """Event for trading signals"""
+    def __init__(self, symbol: str, signal: str, confidence: float, reasoning: Dict[str, Any], timestamp: datetime = None):
+        super().__init__(
+            event_type=EventType.SIGNAL,
+            timestamp=timestamp or datetime.now(),
+            data={
+                'symbol': symbol,
+                'signal': signal,
+                'confidence': confidence,
+                'reasoning': reasoning
+            },
+            source='trading_strategy',
+            priority=3
+        )
+
+class OrderEvent(Event):
+    """Event for order execution"""
+    def __init__(self, symbol: str, action: str, quantity: float, price: float, timestamp: datetime = None):
+        super().__init__(
+            event_type=EventType.ORDER,
+            timestamp=timestamp or datetime.now(),
+            data={
+                'symbol': symbol,
+                'action': action,
+                'quantity': quantity,
+                'price': price
+            },
+            source='order_manager',
+            priority=4
+        )
+
+class EventProcessor:
+    """Base class for event processors"""
+    def __init__(self, name: str):
+        self.name = name
+        self.event_queue = asyncio.Queue()
+        self.running = False
+    
+    async def process_event(self, event: Event):
+        """Process a single event - to be implemented by subclasses"""
+        raise NotImplementedError
+    
+    async def start(self):
+        """Start the event processor"""
+        self.running = True
+        print(f"🚀 {self.name} event processor started")
+        
+        while self.running:
+            try:
+                event = await self.event_queue.get()
+                await self.process_event(event)
+                self.event_queue.task_done()
+            except Exception as e:
+                print(f"❌ Error in {self.name} processor: {e}")
+                await asyncio.sleep(1)
+    
+    async def stop(self):
+        """Stop the event processor"""
+        self.running = False
+        print(f"🛑 {self.name} event processor stopped")
+
+class MarketDataProcessor(EventProcessor):
+    """Processes market data events and generates signals"""
+    def __init__(self, bot_instance):
+        super().__init__("MarketDataProcessor")
+        self.bot = bot_instance
+    
+    async def process_event(self, event: Event):
+        """Process market data and generate signals"""
+        try:
+            symbol = event.data['symbol']
+            market_data = event.data
+            
+            # Generate trading signal using bot's logic
+            signal, confidence, reasoning = self.bot.get_enhanced_signal(symbol)
+            
+            if signal and confidence > 0.5:  # Only process significant signals
+                # Create signal event
+                signal_event = SignalEvent(
+                    symbol=symbol,
+                    signal=signal,
+                    confidence=confidence,
+                    reasoning=reasoning
+                )
+                
+                # Send to signal queue
+                await self.bot.event_coordinator.signal_queue.put(signal_event)
+                
+                print(f"📊 {symbol}: {signal} signal generated (confidence: {confidence:.2f})")
+            
+        except Exception as e:
+            print(f"❌ Error processing market data for {event.data.get('symbol', 'unknown')}: {e}")
+
+class SignalProcessor(EventProcessor):
+    """Processes trading signals and creates orders"""
+    def __init__(self, bot_instance):
+        super().__init__("SignalProcessor")
+        self.bot = bot_instance
+    
+    async def process_event(self, event: Event):
+        """Process trading signal and create order"""
+        try:
+            symbol = event.data['symbol']
+            signal = event.data['signal']
+            confidence = event.data['confidence']
+            
+            # Get current price
+            current_price = self.bot.data_manager.get_current_price(symbol)
+            if not current_price:
+                print(f"⚠️ No current price available for {symbol}")
+                return
+            
+            # Calculate position size based on risk management
+            position_size = self.bot.risk_manager.calculate_position_size(
+                symbol, signal, current_price, confidence
+            )
+            
+            if position_size > 0:
+                # Create order event
+                order_event = OrderEvent(
+                    symbol=symbol,
+                    action=signal,
+                    quantity=position_size,
+                    price=current_price
+                )
+                
+                # Send to order queue
+                await self.bot.event_coordinator.order_queue.put(order_event)
+                
+                print(f"📋 {symbol}: {signal} order created (size: {position_size:.2f})")
+            
+        except Exception as e:
+            print(f"❌ Error processing signal for {event.data.get('symbol', 'unknown')}: {e}")
+
+class OrderProcessor(EventProcessor):
+    """Processes orders and executes trades"""
+    def __init__(self, bot_instance):
+        super().__init__("OrderProcessor")
+        self.bot = bot_instance
+    
+    async def process_event(self, event: Event):
+        """Process order and execute trade"""
+        try:
+            symbol = event.data['symbol']
+            action = event.data['action']
+            quantity = event.data['quantity']
+            price = event.data['price']
+            
+            # Execute the trade
+            success = await self.bot.execute_trade(symbol, action, quantity, price)
+            
+            if success:
+                print(f"✅ {symbol}: {action} order executed successfully")
+                
+                # Update position tracking
+                position_event = Event(
+                    event_type=EventType.POSITION_UPDATE,
+                    timestamp=datetime.now(),
+                    data={
+                        'symbol': symbol,
+                        'action': action,
+                        'quantity': quantity,
+                        'price': price
+                    },
+                    source='order_processor',
+                    priority=2
+                )
+                
+                await self.bot.event_coordinator.position_queue.put(position_event)
+            else:
+                print(f"❌ {symbol}: {action} order execution failed")
+            
+        except Exception as e:
+            print(f"❌ Error executing order for {event.data.get('symbol', 'unknown')}: {e}")
+
+class EventCoordinator:
+    """Coordinates all event processors"""
+    def __init__(self, bot_instance):
+        self.bot = bot_instance
+        
+        # Event queues
+        self.market_data_queue = asyncio.Queue()
+        self.signal_queue = asyncio.Queue()
+        self.order_queue = asyncio.Queue()
+        self.position_queue = asyncio.Queue()
+        
+        # Event processors
+        self.market_data_processor = MarketDataProcessor(bot_instance)
+        self.signal_processor = SignalProcessor(bot_instance)
+        self.order_processor = OrderProcessor(bot_instance)
+        
+        # Processor tasks
+        self.processor_tasks = []
+    
+    async def start(self):
+        """Start all event processors"""
+        print("🚀 Starting event-driven architecture...")
+        
+        # Start processors
+        self.processor_tasks = [
+            asyncio.create_task(self.market_data_processor.start()),
+            asyncio.create_task(self.signal_processor.start()),
+            asyncio.create_task(self.order_processor.start())
+        ]
+        
+        # Connect queues to processors
+        await self._connect_queues()
+        
+        print("✅ Event-driven architecture started")
+    
+    async def _connect_queues(self):
+        """Connect event queues to processors"""
+        # Market data processor
+        asyncio.create_task(self._forward_events(
+            self.market_data_queue, 
+            self.market_data_processor.event_queue
+        ))
+        
+        # Signal processor
+        asyncio.create_task(self._forward_events(
+            self.signal_queue, 
+            self.signal_processor.event_queue
+        ))
+        
+        # Order processor
+        asyncio.create_task(self._forward_events(
+            self.order_queue, 
+            self.order_processor.event_queue
+        ))
+    
+    async def _forward_events(self, source_queue, target_queue):
+        """Forward events from source to target queue"""
+        while True:
+            try:
+                event = await source_queue.get()
+                await target_queue.put(event)
+                source_queue.task_done()
+            except Exception as e:
+                print(f"❌ Error forwarding events: {e}")
+                await asyncio.sleep(1)
+    
+    async def stop(self):
+        """Stop all event processors"""
+        print("🛑 Stopping event-driven architecture...")
+        
+        # Stop processors
+        for processor in [self.market_data_processor, self.signal_processor, self.order_processor]:
+            await processor.stop()
+        
+        # Cancel tasks
+        for task in self.processor_tasks:
+            task.cancel()
+        
+        print("✅ Event-driven architecture stopped")
+
+# --- HIERARCHICAL RL: MASTER AGENT ---
+class MasterRLAgent:
+    """
+    Master Agent quản lý mức độ chấp nhận rủi ro cho toàn bộ danh mục
+    Action space: [0.0, 1.0] - Mức độ chấp nhận rủi ro
+    """
+    def __init__(self, model_path=None):
+        self.model = None
+        self.risk_level = 0.5  # Default risk level
+        self.performance_history = deque(maxlen=100)
+        self.risk_history = deque(maxlen=50)
+        
+        if model_path and os.path.exists(model_path):
+            self.model = PPO.load(model_path)
+            print(f"✅ Master RL Agent loaded from {model_path}")
+        else:
+            print("🤖 Master RL Agent not loaded. Needs to be trained.")
+    
+    def predict_risk_level(self, portfolio_state):
+        """
+        Predict optimal risk level based on portfolio state
+        portfolio_state: [total_balance, num_positions, avg_volatility, trending_ratio]
+        """
+        if not self.model:
+            return 0.5  # Default risk level
+        
+        try:
+            # Normalize portfolio state
+            normalized_state = np.array(portfolio_state, dtype=np.float32)
+            
+            # Predict risk level (continuous action)
+            action, _ = self.model.predict(normalized_state, deterministic=True)
+            risk_level = np.clip(action, 0.0, 1.0)
+            
+            self.risk_level = risk_level
+            self.risk_history.append(risk_level)
+            
+            return risk_level
+        except Exception as e:
+            logging.error(f"Master Agent prediction error: {e}")
+            return 0.5
+    
+    def update_performance(self, portfolio_return, drawdown):
+        """Update performance based on portfolio results"""
+        # Reward for good returns with controlled risk
+        if drawdown < 0.05:  # Low drawdown
+            performance_score = portfolio_return * 2
+        else:
+            performance_score = portfolio_return / (1 + drawdown)
+        
+        self.performance_history.append(performance_score)
+
+# --- HIERARCHICAL RL: WORKER AGENT ---
+class WorkerRLAgent:
+    """
+    Worker Agent quản lý giao dịch cho một tài sản cụ thể
+    Action space: [0, 1, 2] - [HOLD, BUY, SELL]
+    """
+    def __init__(self, symbol, model_path=None):
+        self.symbol = symbol
+        self.model = None
+        self.risk_adjusted_threshold = 0.6  # Default threshold
+        self.trade_history = deque(maxlen=100)
+        
+        if model_path and os.path.exists(model_path):
+            self.model = PPO.load(model_path)
+            print(f"✅ Worker RL Agent for {symbol} loaded from {model_path}")
+        else:
+            print(f"🤖 Worker RL Agent for {symbol} not loaded. Needs to be trained.")
+    
+    def predict_action(self, market_state, risk_level):
+        """
+        Predict trading action based on market state and risk level
+        market_state: [price_features, technical_indicators, position_info]
+        risk_level: [0.0, 1.0] from Master Agent
+        """
+        if not self.model:
+            return 0  # Default to HOLD
+        
+        try:
+            # Combine market state with risk level
+            combined_state = np.append(market_state, [risk_level])
+            
+            # Predict action
+            action, _ = self.model.predict(combined_state, deterministic=True)
+            action_code = int(action)
+            
+            # Adjust action based on risk level
+            if risk_level < 0.3:  # Low risk - be conservative
+                if action_code == 1:  # BUY
+                    action_code = 0  # Convert to HOLD
+            elif risk_level > 0.7:  # High risk - be aggressive
+                if action_code == 0:  # HOLD
+                    action_code = 1  # Convert to BUY (if market conditions allow)
+            
+            return np.clip(action_code, 0, 2)
+        except Exception as e:
+            logging.error(f"Worker Agent {self.symbol} prediction error: {e}")
+            return 0
+    
+    def update_trade_result(self, action, market_return, risk_level):
+        """Update trade history with results"""
+        trade_result = {
+            'action': action,
+            'return': market_return,
+            'risk_level': risk_level,
+            'timestamp': len(self.trade_history)
+        }
+        self.trade_history.append(trade_result)
+
+# --- HIERARCHICAL RL: COORDINATOR ---
+class HierarchicalRLCoordinator:
+    """
+    Coordinator quản lý Master và Worker Agents
+    """
+    def __init__(self, symbols, master_model_path=None, worker_model_paths=None):
+        self.symbols = symbols
+        self.master_agent = MasterRLAgent(master_model_path)
+        self.worker_agents = {}
+        
+        # Initialize worker agents
+        for symbol in symbols:
+            worker_path = worker_model_paths.get(symbol) if worker_model_paths else None
+            self.worker_agents[symbol] = WorkerRLAgent(symbol, worker_path)
+        
+        self.portfolio_state = {
+            'total_balance': 10000,
+            'num_positions': 0,
+            'avg_volatility': 0.02,
+            'trending_ratio': 0.5
+        }
+    
+    def get_portfolio_decisions(self, market_data_dict):
+        """
+        Get trading decisions for all symbols using hierarchical approach
+        """
+        try:
+            # 1. Master Agent: Determine risk level
+            portfolio_state = [
+                self.portfolio_state['total_balance'] / 10000,  # Normalized balance
+                self.portfolio_state['num_positions'] / len(self.symbols),  # Position ratio
+                self.portfolio_state['avg_volatility'],
+                self.portfolio_state['trending_ratio']
+            ]
+            
+            risk_level = self.master_agent.predict_risk_level(portfolio_state)
+            
+            # 2. Worker Agents: Get individual decisions
+            decisions = {}
+            for symbol, worker_agent in self.worker_agents.items():
+                if symbol in market_data_dict:
+                    market_state = market_data_dict[symbol]
+                    action = worker_agent.predict_action(market_state, risk_level)
+                    decisions[symbol] = action
+                else:
+                    decisions[symbol] = 0  # HOLD if no data
+            
+            return decisions, risk_level
+            
+        except Exception as e:
+            logging.error(f"Hierarchical RL Coordinator error: {e}")
+            # Fallback to HOLD for all symbols
+            return {symbol: 0 for symbol in self.symbols}, 0.5
+    
+    def update_portfolio_state(self, balance, positions, volatility, trending_ratio):
+        """Update portfolio state for next decision"""
+        self.portfolio_state.update({
+            'total_balance': balance,
+            'num_positions': positions,
+            'avg_volatility': volatility,
+            'trending_ratio': trending_ratio
+        })
+
 # --- NEW: RL AGENT CLASS ---
 class RLAgent:
     def __init__(self, model_path=None):
@@ -16746,15 +17260,28 @@ class EnhancedTradingBot:
 
         sl_atr_multiplier = RISK_MANAGEMENT.get("SL_ATR_MULTIPLIER", 1.5)
 
-        # --- LOGIofN TON M I ---
-        # 1. Calculate SL distance based on ATR
+        # --- GARCH VOLATILITY FORECASTING ---
+        # 1. Get GARCH forecasted volatility
+        garch_volatility = self._forecast_volatility(symbol)
+        
+        # 2. Calculate SL distance based on GARCH forecast
+        sl_distance_garch = current_price * garch_volatility * sl_atr_multiplier
+        
+        # 3. Calculate SL distance based on ATR (fallback)
         sl_distance_atr = atr_value * sl_atr_multiplier
 
-        # 2. Calculate minimum safe SL distance (e.g.: 0.3% of current price)
+        # 4. Calculate minimum safe SL distance (e.g.: 0.3% of current price)
         min_safe_sl_distance = current_price * 0.003
 
-        # 3. Ch n kho ng allh l n hon dlm SL cu cng
-        sl_distance = max(sl_distance_atr, min_safe_sl_distance)
+        # 5. Use GARCH forecast if available, otherwise use ATR
+        if garch_volatility > 0:
+            sl_distance = max(sl_distance_garch, min_safe_sl_distance)
+            volatility_source = "GARCH"
+        else:
+            sl_distance = max(sl_distance_atr, min_safe_sl_distance)
+            volatility_source = "ATR"
+        
+        print(f"    [Risk] Volatility forecast for {symbol}: {garch_volatility:.4f} ({volatility_source})")
         # --- K T THC LOGIofN TON ---
 
         base_rr_ratio = RISK_MANAGEMENT.get("BASE_RR_RATIO", 1.5)
@@ -18838,10 +19365,14 @@ class EnhancedTradingBot:
         }
         self.send_discord_alert(" **Advanced Bot Started Successfully!**", "SUCCESS", "NORMAL", startup_data)
 
+        # Initialize event-driven architecture
+        self.event_coordinator = EventCoordinator(self)
+        await self.event_coordinator.start()
+        
         while True:
             try:
-                # Execute main bot cycle
-                await self._execute_bot_cycle(is_first_run)
+                # Execute main bot cycle with event-driven architecture
+                await self._execute_bot_cycle_event_driven(is_first_run)
                 is_first_run = False
                 
             except KeyboardInterrupt:
@@ -18863,6 +19394,46 @@ class EnhancedTradingBot:
                 }
                 self.send_discord_alert(f" **Critical Bot Error**\n{str(e)}", "CRITICAL", "HIGH", error_data)
                 await asyncio.sleep(60)  # Wait before retry
+        
+        # Stop event coordinator on exit
+        await self.event_coordinator.stop()
+
+    async def _execute_bot_cycle_event_driven(self, is_first_run):
+        """Execute bot cycle using event-driven architecture"""
+        try:
+            # 1. System health checks
+            await self._perform_system_health_checks()
+            
+            # 2. Wait for proper timing
+            await self._handle_timing_logic(is_first_run)
+            
+            # 3. Model management
+            await self._handle_model_management()
+            
+            # 4. Data management - generate market data events
+            live_data_cache = await self._handle_data_management()
+            
+            # 5. Send market data events to event queue
+            for symbol, df_features in live_data_cache.items():
+                if df_features is not None and not df_features.empty:
+                    market_data_event = MarketDataEvent(
+                        symbol=symbol,
+                        data={'features': df_features.to_dict()}
+                    )
+                    await self.event_coordinator.market_data_queue.put(market_data_event)
+            
+            # 6. Position management
+            await self._handle_position_management(live_data_cache)
+            
+            # 7. Master Agent trailing stop management
+            self._apply_master_agent_trailing_stops()
+            
+            # 8. Wait for event processing
+            await asyncio.sleep(1)  # Allow events to be processed
+            
+        except Exception as e:
+            logger.error(f"Error in event-driven bot cycle: {e}")
+            print(f"Error in event-driven bot cycle: {e}")
 
     async def _execute_bot_cycle(self, is_first_run):
         """Execute one complete bot cycle"""
@@ -19929,6 +20500,57 @@ class AdvancedRiskManager:
             await self.observability.send_discord_alert(violation_msg, "WARNING")
 
         return validation_result
+    
+    def _forecast_volatility(self, symbol):
+        """
+        Forecast volatility using GARCH(1,1) model for tail risk prediction
+        """
+        try:
+            # Import arch library
+            try:
+                from arch import arch_model
+            except ImportError:
+                print("Warning: arch library not installed. Install with: pip install arch")
+                return 0.0
+            
+            # Get historical data for returns calculation
+            df_primary_tf = self.data_manager.fetch_multi_timeframe_data(
+                symbol, count=250, timeframes_to_use=[PRIMARY_TIMEFRAME]
+            ).get(PRIMARY_TIMEFRAME)
+            
+            if df_primary_tf is None or len(df_primary_tf) < 100:
+                print(f"Warning: Insufficient data for GARCH forecasting for {symbol}")
+                return 0.0
+            
+            # Calculate daily returns
+            returns = df_primary_tf['close'].pct_change().dropna()
+            
+            if len(returns) < 50:
+                print(f"Warning: Insufficient returns data for GARCH forecasting for {symbol}")
+                return 0.0
+            
+            # Fit GARCH(1,1) model
+            model = arch_model(returns, vol='Garch', p=1, q=1)
+            
+            # Fit the model with error handling
+            try:
+                fitted_model = model.fit(disp='off', show_warning=False)
+            except Exception as e:
+                print(f"Warning: GARCH model fitting failed for {symbol}: {e}")
+                return 0.0
+            
+            # Forecast volatility for next period
+            forecast = fitted_model.forecast(horizon=1)
+            forecasted_volatility = float(forecast.variance.iloc[-1, 0] ** 0.5)
+            
+            # Ensure reasonable volatility range (0.1% to 10%)
+            forecasted_volatility = max(0.001, min(0.10, forecasted_volatility))
+            
+            return forecasted_volatility
+            
+        except Exception as e:
+            print(f"Error in GARCH volatility forecasting for {symbol}: {e}")
+            return 0.0
 
 class PortfolioRiskManager:
     """
@@ -19942,9 +20564,62 @@ class PortfolioRiskManager:
 
     def update_correlation_matrix(self, force_update=False):
         """
-        Calculate and save correlation matrix based on daily returns.
+        Calculate and save correlation matrix using EWMA (Exponentially Weighted Moving Average)
+        for dynamic correlation that emphasizes recent data.
         """
         now = datetime.now()
+        
+        # Check if update is needed (every 4 hours)
+        if not force_update and self.last_update_time:
+            time_diff = (now - self.last_update_time).total_seconds()
+            if time_diff < 4 * 3600:  # 4 hours
+                return
+        
+        try:
+            # Get returns data for all symbols
+            all_returns = {}
+            for symbol in self.symbols:
+                df_tf = self.data_manager.fetch_multi_timeframe_data(
+                    symbol, count=500, timeframes_to_use=['D1']
+                ).get('D1')
+                if df_tf is not None and not df_tf.empty:
+                    all_returns[symbol] = df_tf['close'].pct_change().dropna()
+            
+            if not all_returns:
+                print("Warning: No returns data available for correlation matrix")
+                return
+            
+            # Align to common index
+            returns_df = pd.DataFrame(all_returns).dropna(how='all').fillna(0)
+            
+            if len(returns_df) < 30:
+                print("Warning: Insufficient data for correlation matrix")
+                return
+            
+            # --- DYNAMIC CORRELATION WITH EWMA ---
+            # Use EWMA with com=60 (equivalent to ~60 days of data with exponential weighting)
+            # This gives more weight to recent correlations
+            self.correlation_matrix = returns_df.ewm(com=60, min_periods=30).corr()
+            
+            # Get the latest correlation matrix (last timestamp)
+            if hasattr(self.correlation_matrix, 'iloc'):
+                # For multi-level index, get the last level
+                latest_corr = self.correlation_matrix.iloc[-len(self.symbols):]
+                self.correlation_matrix = latest_corr
+            
+            self.last_update_time = now
+            print(f"[Risk Manager] Dynamic correlation matrix updated using EWMA (com=60)")
+            
+        except Exception as e:
+            print(f"Error updating dynamic correlation matrix: {e}")
+            # Fallback to simple correlation
+            try:
+                returns_df = pd.DataFrame(all_returns).dropna(how='all').fillna(0)
+                self.correlation_matrix = returns_df.corr()
+                self.last_update_time = now
+                print("[Risk Manager] Fallback to simple correlation matrix")
+            except Exception as e2:
+                print(f"Fallback correlation update also failed: {e2}")
 
     # === Hybridorrelation: long (D1) + short (H1/H4) ===
     def _compute_corr(self, timeframe='D1', lookback=250):
