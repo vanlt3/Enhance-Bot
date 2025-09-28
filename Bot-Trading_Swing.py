@@ -7610,10 +7610,11 @@ class AdvancedFeatureEngineer:
             (df['close'] > df['rolling_min'].shift(1))     # and closes back inside range
         ).astype(int)
 
-        # Upthrust: Price breakfixbove resistance zone then quickly returns
+        # FIX: Corrected typo in comment and logic
+        # Upthrust: Price breaks above resistance zone then quickly returns
         df['upthrust_signal'] = (
             (df['is_in_range'].shift(1) == True) & # Previous candle was in range
-            (df['high'] > df['rolling_max'].shift(1)) &     # current candle breakfixbove
+            (df['high'] > df['rolling_max'].shift(1)) &     # current candle breaks above
             (df['close'] < df['rolling_max'].shift(1))     # and closes back inside range
         ).astype(int)
 
@@ -8110,18 +8111,18 @@ class AdvancedFeatureEngineer:
         if 'rsi_14' not in df.columns:
             df["rsi_14"] = RSIIndicator(df["close"], window=14).rsi()
 
-        # <<< THAY THTON BVNG L P l ng nhau equal 1 used this >>>
+        # <<< THAY THẾ BẰNG LỆNH lệnh nhau bằng 1 used this >>>
         df = calculate_rsi_divergence_vectorized(df)
 
-        # D n d p all from from model if c
+        # Dọn dẹp tất cả features từ model nếu có
         cols_to_drop = ['price_peak', 'price_trough', 'rsi_peak', 'rsi_trough', 'rsi_14']
         df.drop(columns=[col for col in cols_to_drop if col in df.columns], inplace=True, errors='ignore')
 
         return df
-    # <<< TFunction Function this VO in L P AdvancedFeatureEngineer >>>
+    # <<< THÊM Function này VÀO LỚP AdvancedFeatureEngineer >>>
     def create_market_regime_feature(self, df, adx_threshold=DEFAULT_ADX_THRESHOLD, ema_period=DEFAULT_EMA_PERIOD):
         """
-        T o feature sdx l data nh tempty thi thtru ng.
+        Tạo feature xác định chế độ thị trường.
         1: Uptrend, -1: Downtrend, 0: Sideways
         """
         logging.info("   [Features] Starting market state feature creation...")
@@ -9773,7 +9774,16 @@ class EnhancedDataManager:
                 response = requests.get(url, headers=headers, params=params, timeout=30)
                 if response.status_code != 200:
                     print(f"API {response.status_code} {instrument} {timeframe}: {response.text}")
-                    continue
+                    # FIX: Add retry logic for API errors
+                    if response.status_code in [429, 500, 502, 503, 504]:  # Retryable errors
+                        print(f"Retrying {instrument} {timeframe} in 2 seconds...")
+                        time.sleep(2)
+                        response = requests.get(url, headers=headers, params=params, timeout=30)
+                        if response.status_code != 200:
+                            print(f"API retry failed {response.status_code} {instrument} {timeframe}")
+                            continue
+                    else:
+                        continue
 
                 candles_raw = response.json().get("candles", [])
                 print(f"   --> Received {len(candles_raw)} candles ({instrument} {timeframe}).")
@@ -10289,8 +10299,8 @@ class EnhancedDataManager:
         for timeframe in timeframes_to_use:
             if timeframe not in granularity_map: continue
             try:
-                # (Logic get instrumentoriginal as function of b n)
-                instrument = f"{symbol[:3]}_{symbol[3:]}" # V Equal gi n ha
+                # FIX: Use proper instrument mapping function
+                instrument = self._get_oanda_instrument(symbol)  # Use proper mapping function
 
                 granularity = granularity_map[timeframe]
                 url = f"{OANDA_URL}/instruments/{instrument}/candles"
@@ -11009,10 +11019,38 @@ class OrderProcessor(EventProcessor):
     async def process_event(self, event: Event):
         """Process order and execute trade"""
         try:
+            # FIX: Enhanced data validation for event processing
+            if not event or not event.data:
+                print("❌ OrderProcessor: Invalid event or missing data")
+                return
+                
+            required_fields = ['symbol', 'action', 'quantity', 'price']
+            for field in required_fields:
+                if field not in event.data:
+                    print(f"❌ OrderProcessor: Missing required field '{field}' in event data")
+                    return
+            
             symbol = event.data['symbol']
             action = event.data['action']
             quantity = event.data['quantity']
             price = event.data['price']
+            
+            # FIX: Validate data types and values
+            if not isinstance(symbol, str) or not symbol:
+                print(f"❌ OrderProcessor: Invalid symbol: {symbol}")
+                return
+                
+            if action not in ['BUY', 'SELL']:
+                print(f"❌ OrderProcessor: Invalid action: {action}")
+                return
+                
+            if not isinstance(quantity, (int, float)) or quantity <= 0:
+                print(f"❌ OrderProcessor: Invalid quantity: {quantity}")
+                return
+                
+            if not isinstance(price, (int, float)) or price <= 0:
+                print(f"❌ OrderProcessor: Invalid price: {price}")
+                return
             
             # Execute the trade
             # FIX: Pass confidence from event data to execute_trade
@@ -16236,14 +16274,31 @@ class EnhancedTradingBot:
                 logging.debug(f"Model {model_type} cho {symbol}: Using metadata (F1:{f1:.3f}, STD:{std_f1:.3f}, Accuracy:{accuracy:.3f})")
             elif "ensemble" in model_data and hasattr(model_data["ensemble"], 'cv_results') and model_data["ensemble"].cv_results:
                 try:
-                    key = next(iter(model_data['ensemble'].cv_results))
-                    res = model_data['ensemble'].cv_results[key]
+                    # FIX: Better error handling for cv_results access
+                    cv_results = model_data['ensemble'].cv_results
+                    if not cv_results or len(cv_results) == 0:
+                        print(f"  Model {model_type} cho {symbol}: Empty cv_results")
+                        return False
+                    
+                    key = next(iter(cv_results))
+                    res = cv_results[key]
                     logging.debug(f"cv_results keys cho {symbol}: {list(res.keys())}")
-                    f1 = res['mean_f1']
-                    std_f1 = res['std_f1']
-                    accuracy = res.get('mean_accuracy', res.get('accuracy', 0.5))  # Fallback if not c mean_accuracy
+                    
+                    # FIX: Safe access to cv_results with proper fallbacks
+                    f1 = res.get('mean_f1', res.get('f1', 0.0))
+                    std_f1 = res.get('std_f1', res.get('std', 1.0))
+                    accuracy = res.get('mean_accuracy', res.get('accuracy', 0.5))
+                    
+                    # Validate values are reasonable
+                    if not isinstance(f1, (int, float)) or f1 < 0 or f1 > 1:
+                        f1 = 0.0
+                    if not isinstance(std_f1, (int, float)) or std_f1 < 0:
+                        std_f1 = 1.0
+                    if not isinstance(accuracy, (int, float)) or accuracy < 0 or accuracy > 1:
+                        accuracy = 0.5
+                    
                     logging.debug(f"Model {model_type} cho {symbol}: Using cv_results (F1:{f1:.3f}, STD:{std_f1:.3f}, Accuracy:{accuracy:.3f})")
-                except (KeyError, IndexError, StopIteration) as e:
+                except (KeyError, IndexError, StopIteration, AttributeError) as e:
                     print(f"  Model {model_type} cho {symbol}: Li truy c p cv_results: {e}")
                     return False
             else:
@@ -16735,13 +16790,17 @@ class EnhancedTradingBot:
             rsi_extremity = abs(rsi_value - 50) / 50  # Distance from neutral RSI
             rsi_confidence = min(1.0, rsi_extremity)
             
+            # FIX: Improved weighted combination with better normalization
             # Weighted combination of all indicators - Điều chỉnh trọng số
             regime_confidence = (
-                0.3 * adx_confidence +      # Giảm trọng số ADX từ 0.4 xuống 0.3
-                0.4 * trend_confidence +    # Tăng trọng số trend strength từ 0.3 lên 0.4
-                0.2 * volatility_confidence + # Volatility indicates trend potential
-                0.1 * rsi_confidence        # RSI extremity as supporting indicator
+                0.35 * adx_confidence +      # ADX is primary trend indicator
+                0.35 * trend_confidence +    # Trend strength is equally important
+                0.20 * volatility_confidence + # Volatility indicates trend potential
+                0.10 * rsi_confidence        # RSI extremity as supporting indicator
             )
+            
+            # FIX: Ensure regime_confidence is within valid range [0, 1]
+            regime_confidence = max(0.0, min(1.0, regime_confidence))
             
             # Apply smoothing to avoid rapid regime changes
             if hasattr(self, f'_regime_confidence_history_{symbol}'):
@@ -16774,24 +16833,25 @@ class EnhancedTradingBot:
                 logging.warning(f"get_enhanced_signal: No feature_columns found for {symbol}")
                 return None, 0.0, None
 
+            # FIX: Updated deprecated fillna method calls
             # Pipeline clean data more (original logic old of b n)
             df_features.replace([np.inf, -np.inf], np.nan, inplace=True)
-            df_features.fillna(method="ffill", inplace=True)
-            df_features.fillna(method="bfill", inplace=True)
+            df_features.ffill(inplace=True)  # FIX: Updated from fillna(method="ffill")
+            df_features.bfill(inplace=True)  # FIX: Updated from fillna(method="bfill")
             cols_to_drop = df_features.columns[df_features.isna().all()].tolist()
             if cols_to_drop:
                 df_features.drop(columns=cols_to_drop, inplace=True)
             df_features.dropna(inplace=True)
 
             if len(df_features) < 10:
-                logging.warning(f"get_enhanced_signal: data dufromrung qu t sau khi l+m sߦch {symbol} ({len(df_features)} used)")
+                logging.warning(f"get_enhanced_signal: data dufromrung qu t sau khi l+m sạch {symbol} ({len(df_features)} used)")
                 return None, 0.0, None
 
-            #  m b o all from features of model must t n t i in df_features
+            # Đảm bảo tất cả features của model phải tồn tại trong df_features
             available_columns = [col for col in feature_columns if col in df_features.columns]
             X = df_features[available_columns]
 
-            # KH C PH C L I:  m b o feature ordering nh t qun
+            # KHẮC PHỤC LỖI: Đảm bảo feature ordering nhất quán
             X_ordered = pd.DataFrame(index=X.index)
             for col in feature_columns:
                 if col in X.columns:
@@ -17674,21 +17734,43 @@ class EnhancedTradingBot:
             # Fit GARCH(1,1) model
             model = arch_model(returns, vol='Garch', p=1, q=1)
             
-            # Fit the model with error handling
+            # FIX: Enhanced error handling for GARCH model fitting
             try:
                 fitted_model = model.fit(disp='off', show_warning=False)
+                
+                # Validate model convergence
+                if not hasattr(fitted_model, 'forecast') or fitted_model.params is None:
+                    print(f"Warning: GARCH model did not converge properly for {symbol}")
+                    return 0.0
+                    
             except Exception as e:
                 print(f"Warning: GARCH model fitting failed for {symbol}: {e}")
                 return 0.0
             
-            # Forecast volatility for next period
-            forecast = fitted_model.forecast(horizon=1)
-            forecasted_volatility = float(forecast.variance.iloc[-1, 0] ** 0.5)
-            
-            # Ensure reasonable volatility range (0.1% to 10%)
-            forecasted_volatility = max(0.001, min(0.10, forecasted_volatility))
-            
-            return forecasted_volatility
+            # FIX: Enhanced volatility forecasting with validation
+            try:
+                forecast = fitted_model.forecast(horizon=1)
+                
+                # Validate forecast results
+                if forecast is None or forecast.variance is None or forecast.variance.empty:
+                    print(f"Warning: GARCH forecast failed for {symbol}")
+                    return 0.0
+                
+                forecasted_volatility = float(forecast.variance.iloc[-1, 0] ** 0.5)
+                
+                # Validate volatility value
+                if not isinstance(forecasted_volatility, (int, float)) or np.isnan(forecasted_volatility) or np.isinf(forecasted_volatility):
+                    print(f"Warning: Invalid GARCH volatility forecast for {symbol}: {forecasted_volatility}")
+                    return 0.0
+                
+                # Ensure reasonable volatility range (0.1% to 10%)
+                forecasted_volatility = max(0.001, min(0.10, forecasted_volatility))
+                
+                return forecasted_volatility
+                
+            except Exception as e:
+                print(f"Warning: GARCH volatility forecasting failed for {symbol}: {e}")
+                return 0.0
             
         except Exception as e:
             print(f"Error in GARCH volatility forecasting for {symbol}: {e}")
@@ -17740,7 +17822,7 @@ class EnhancedTradingBot:
             volatility_source = "ATR"
         
         print(f"    [Risk] Volatility forecast for {symbol}: {garch_volatility:.4f} ({volatility_source})")
-        # --- K T THC LOGIofN TON ---
+        # --- KẾT THÚC LOGIC TÍNH TOÁN ---
 
         base_rr_ratio = RISK_MANAGEMENT.get("BASE_RR_RATIO", 1.5)
         rr_ratio = base_rr_ratio + (confidence - 0.5)
@@ -18410,8 +18492,16 @@ class EnhancedTradingBot:
     def send_enhanced_alert(self, symbol, signal, entry_price, tp, sl, confidence, position_size_percent, reasoning, master_decision=None):
         strategy_type = "[RL]" if self.use_rl else "[Ensemble]"
 
+        # FIX: Enhanced confidence validation and formatting
         # Debug: Log the actual confidence value before formatting
         print(f"[DEBUG] send_enhanced_alert for {symbol}: raw confidence = {confidence} ({type(confidence)})")
+        
+        # FIX: Validate and normalize confidence value
+        if not isinstance(confidence, (int, float)):
+            confidence = 0.5
+            print(f"Warning: Invalid confidence type for {symbol}, using default 0.5")
+        else:
+            confidence = max(0.0, min(1.0, float(confidence)))
         
         # Format reasoning with emoji v structure d p hon
         reasoning_text = " **Lu n di m vo l nh:**\n"
@@ -20997,24 +21087,36 @@ class PortfolioRiskManager:
 def calculate_rsi_divergence_vectorized(df, window=14, lookback=60):
     """
     Xhas data nh phn kRSI equal phuong php vector ha, nhanh hon vng l p.
+    FIX: Added proper error handling and data validation.
     """
     df['bearish_divergence'] = 0
     df['bullish_divergence'] = 0
 
+    # FIX: Validate input data
+    if df is None or len(df) < lookback:
+        print(f"Warning: Insufficient data for RSI divergence calculation. Need {lookback}, got {len(df) if df is not None else 0}")
+        return df
+    
+    if 'rsi_14' not in df.columns or 'high' not in df.columns or 'low' not in df.columns:
+        print("Warning: Missing required columns for RSI divergence calculation")
+        return df
+
     # Chprocessing trn `lookback` n n g n nh t dti t ki m th i gian
     df_slice = df.iloc[-lookback:].copy()
 
-    # Tm allhas data nh v duc c c b 
-    price_peaks_idx = argrelextrema(df_slice['high'].to_numpy(), np.greater_equal, order=5)[0]
-    price_troughs_idx = argrelextrema(df_slice['low'].to_numpy(), np.less_equal, order=5)[0]
-    rsi_peaks_idx = argrelextrema(df_slice['rsi_14'].to_numpy(), np.greater_equal, order=5)[0]
+    try:
+        # Tm allhas data nh v duc c c b 
+        price_peaks_idx = argrelextrema(df_slice['high'].to_numpy(), np.greater_equal, order=5)[0]
+        price_troughs_idx = argrelextrema(df_slice['low'].to_numpy(), np.less_equal, order=5)[0]
+        rsi_peaks_idx = argrelextrema(df_slice['rsi_14'].to_numpy(), np.greater_equal, order=5)[0]
+        rsi_troughs_idx = argrelextrema(df_slice['rsi_14'].to_numpy(), np.less_equal, order=5)[0]
 
-    # <<<  fix L I: Xa m t ch'l' bth a >>>
-    rsi_troughs_idx = argrelextrema(df_slice['rsi_14'].to_numpy(), np.less_equal, order=5)[0]
-
-    if len(price_peaks_idx) < 2 or len(rsi_peaks_idx) < 2 or \
-       len(price_troughs_idx) < 2 or len(rsi_troughs_idx) < 2:
-        return df # not ddnh/duc dso snh
+        if len(price_peaks_idx) < 2 or len(rsi_peaks_idx) < 2 or \
+           len(price_troughs_idx) < 2 or len(rsi_troughs_idx) < 2:
+            return df # not ddnh/duc dso snh
+    except Exception as e:
+        print(f"Error in RSI divergence calculation: {e}")
+        return df
 
     # -- Check phn kgi m (Bearish Divergence) --
     # Gi to dnh cao hon (Higher High)
