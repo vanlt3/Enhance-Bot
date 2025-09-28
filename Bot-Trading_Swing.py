@@ -13377,8 +13377,11 @@ class MasterAgent:
     - Risk-Reward optimization
     """
     
-    def __init__(self):
+    def __init__(self, news_manager=None):
         print("🎯 [Master Agent] Initializing Master Agent for TP/SL decisions...")
+        
+        # Store news_manager reference for LLM access
+        self.news_manager = news_manager
         
         # Core decision tracking
         self.tp_sl_history = {}
@@ -14861,7 +14864,7 @@ class EnhancedTradingBot:
         
         # Advanced Master Agent System for TP/SL Decisions
         print("🎯 [Bot Init] Initializing Master Agent for TP/SL decisions...")
-        self.master_agent_coordinator = MasterAgent()
+        self.master_agent_coordinator = MasterAgent(news_manager=self.news_manager)
         print("✅ [Bot Init] Master Agent initialized successfully")
         
         # Advanced Ensemble System
