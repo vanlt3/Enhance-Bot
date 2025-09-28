@@ -18329,7 +18329,7 @@ class EnhancedTradingBot:
                     """INSERT INTO trades (symbol, signal, entry_price, exit_price,
                                           closed_at, reason, pips, confidence,
                                           signal_price, execution_slippage_pips, spread_cost_pips)
-                       VALUES (, , , , , , , , , , )""",
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     trade_data,
                 )
                 self.conn.commit()
@@ -23259,7 +23259,7 @@ class AdvancedFeatureStore:
             conn.execute("""
                 INSERT OR REPLACE INTO feature_schema
                 (feature_name, feature_type, min_value, max_value, description, created_at)
-                VALUES (, , , , , )
+                VALUES (?, ?, ?, ?, ?, ?)
             """, (feature_name, feature_type, min_value, max_value, description, datetime.now().isoformat()))
 
     def validate_feature(self, feature_name, feature_value):
@@ -23297,7 +23297,7 @@ class AdvancedFeatureStore:
                 conn.execute("""
                     INSERT OR REPLACE INTO features
                     (symbol, timestamp, timeframe, feature_name, feature_value, feature_type, created_at)
-                    VALUES (, , , , , , )
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
                 """, (symbol, timestamp, timeframe, feature_name, feature_value, feature_type, datetime.now().isoformat()))
 
     def get_features(self, symbol, timeframe, start_time=None, end_time=None, feature_names=None):
