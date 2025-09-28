@@ -10415,6 +10415,11 @@ def load_latest_model(symbol, model_type="ensemble"):
             is_valid = True
 
         if is_valid:
+            # Add backward compatibility for old model files missing model_weights_dynamic
+            if ensemble_model and not hasattr(ensemble_model, 'model_weights_dynamic'):
+                ensemble_model.model_weights_dynamic = {}
+                logging.info(f"🔧 Added missing model_weights_dynamic attribute to {symbol} {model_type} model")
+            
             logging.info(f" Loaded_compatible model ({model_type}) for {symbol} from: {latest_pkl_file}")
             return model_data
         else:
