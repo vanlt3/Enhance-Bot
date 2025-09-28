@@ -1612,6 +1612,15 @@ SYMBOL_ALIAS = {
 # Feature engineering constants
 DEFAULT_ATR_MULTIPLIER = 2.0
 DEFAULT_RANGE_WINDOW = 50
+
+# Wyckoff Configuration for different symbols
+WYCKOFF_CONFIG = {
+    "DEFAULT":  {"range_window": 50, "atr_multiplier": 1.2, "volume_ema": 50},
+    "XAUUSD":   {"range_window": 60, "atr_multiplier": 1.2, "volume_ema": 40},
+    "SPX500":   {"range_window": 75, "atr_multiplier": 1.5, "volume_ema": 30},
+    "BTCUSD":   {"range_window": 40, "atr_multiplier": 1.8, "volume_ema": 20},
+    "ETHUSD":   {"range_window": 45, "atr_multiplier": 2.0, "volume_ema": 20}
+}
 DEFAULT_EMA_PERIOD = 200
 DEFAULT_ADX_THRESHOLD = 25
 
@@ -7549,11 +7558,24 @@ class AdvancedFeatureEngineer:
         return df
 
     #  t Function this bn in clasfixdvancedFeatureEngineer of b n
-    def create_wyckoff_features(self, df, atr_multiplier=DEFAULT_ATR_MULTIPLIER, range_window=DEFAULT_RANGE_WINDOW):
+    def create_wyckoff_features(self, df, symbol="DEFAULT", atr_multiplier=None, range_window=None):
         """
-        Create numerical features based on Wyckoff method principles.
+        Create numerical features based on Wyckoff method principles with dynamic parameters.
         """
-        logging.info(f"   [Features] Starting Wyckoff features creation...")
+        logging.info(f"   [Features] Starting Wyckoff features creation for {symbol}...")
+        
+        # Get Wyckoff configuration for the symbol
+        config = WYCKOFF_CONFIG.get(symbol, WYCKOFF_CONFIG["DEFAULT"])
+        
+        # Use provided parameters or fall back to config
+        if atr_multiplier is None:
+            atr_multiplier = config["atr_multiplier"]
+        if range_window is None:
+            range_window = config["range_window"]
+        volume_ema_period = config["volume_ema"]
+        
+        logging.info(f"   [Features] Using Wyckoff config: range_window={range_window}, atr_multiplier={atr_multiplier}, volume_ema={volume_ema_period}")
+        
         if "atr" not in df.columns:
             df["atr"] = AverageTrueRange(df["high"], df["low"], df["close"]).average_true_range()
 
@@ -7579,33 +7601,168 @@ class AdvancedFeatureEngineer:
 
         # 3. Volume Spread Analysis (VSA Features)
         df['price_spread'] = df['high'] - df['low']
-        df['volume_ema_50'] = df['volume'].ewm(span=50, adjust=False).mean()
-        df['is_high_volume'] = (df['volume'] > df['volume_ema_50'] * 2).astype(int)
+        df['volume_ema'] = df['volume'].ewm(span=volume_ema_period, adjust=False).mean()
+        df['is_high_volume'] = (df['volume'] > df['volume_ema'] * 2).astype(int)
 
         # No Demand signal: Rising candle, narrow spread, low volume -> weak buying
         df['no_demand_signal'] = (
             (df['close'] > df['open']) &
             (df['price_spread'] < df['price_spread'].rolling(20).mean() * 0.7) &
-            (df['volume'] < df['volume_ema_50'] * 0.8)
+            (df['volume'] < df['volume_ema'] * 0.8)
         ).astype(int)
 
         # No Supply signal: Falling candle, narrow spread, low volume -> weak selling
         df['no_supply_signal'] = (
             (df['close'] < df['open']) &
             (df['price_spread'] < df['price_spread'].rolling(20).mean() * 0.7) &
-            (df['volume'] < df['volume_ema_50'] * 0.8)
+            (df['volume'] < df['volume_ema'] * 0.8)
         ).astype(int)
 
-        # 4. Identify Phases (simplified)
-        # Phase 1/3 (Accumulation/Distribution): Low volatility
+        # 4. Sign of Strength (SOS) and Sign of Weakness (SOW) signals
+        # SOS: Bullish candle with wide spread, high volume, close near high
+        df['sign_of_strength'] = (
+            (df['close'] > df['open']) &  # Bullish candle
+            (df['price_spread'] > df['price_spread'].rolling(20).mean() * 1.2) &  # Wide spread
+            (df['is_high_volume'] == 1) &  # High volume
+            ((df['close'] - df['low']) / df['price_spread'] > 0.7)  # Close near high
+        ).astype(int)
+
+        # SOW: Bearish candle with wide spread, high volume, close near low
+        df['sign_of_weakness'] = (
+            (df['close'] < df['open']) &  # Bearish candle
+            (df['price_spread'] > df['price_spread'].rolling(20).mean() * 1.2) &  # Wide spread
+            (df['is_high_volume'] == 1) &  # High volume
+            ((df['high'] - df['close']) / df['price_spread'] > 0.7)  # Close near low
+        ).astype(int)
+
+        # 5. Wyckoff Phase Detection (A, B, C, D, E)
         df['atr_normalized'] = df['atr'] / df['close']
         df['low_volatility_phase'] = (df['atr_normalized'] < df['atr_normalized'].rolling(range_window).quantile(0.25)).astype(int)
-
-        # Phase 2/4 (Mark-up/Mark-down): High volatility, trending
         df['high_volatility_phase'] = (df['atr_normalized'] > df['atr_normalized'].rolling(range_window).quantile(0.75)).astype(int)
+
+        # Initialize wyckoff_phase column
+        df['wyckoff_phase'] = 'Unknown'
+
+        # Phase A (Stopping Action): High volume and volatility after strong trend
+        df['phase_a_signal'] = (
+            (df['is_high_volume'] == 1) &
+            (df['high_volatility_phase'] == 1) &
+            (df['atr_normalized'] > df['atr_normalized'].rolling(20).mean() * 1.5)
+        ).astype(int)
+
+        # Phase B (Building a Cause): Extended range-bound movement with low volatility
+        df['phase_b_signal'] = (
+            (df['is_in_range'] == 1) &
+            (df['low_volatility_phase'] == 1) &
+            (df['is_in_range'].rolling(10).sum() >= 7)  # In range for most of last 10 periods
+        ).astype(int)
+
+        # Phase C (The Test): Spring or Upthrust signals
+        df['phase_c_signal'] = (
+            (df['spring_signal'] == 1) | (df['upthrust_signal'] == 1)
+        ).astype(int)
+
+        # Phase D (Markup/Markdown): Breakout from range with high volatility
+        df['phase_d_signal'] = (
+            (df['is_in_range'].shift(1) == 1) &  # Was in range
+            (df['is_in_range'] == 0) &  # Now out of range
+            (df['high_volatility_phase'] == 1)  # High volatility
+        ).astype(int)
+
+        # Phase E (Public Participation): Strong trending with extreme volatility
+        df['phase_e_signal'] = (
+            (df['high_volatility_phase'] == 1) &
+            (df['atr_normalized'] > df['atr_normalized'].rolling(range_window).quantile(0.9)) &
+            (df['is_high_volume'] == 1)
+        ).astype(int)
+
+        # Determine current phase based on signals
+        for i in range(len(df)):
+            if df.iloc[i]['phase_e_signal'] == 1:
+                df.iloc[i, df.columns.get_loc('wyckoff_phase')] = 'E'
+            elif df.iloc[i]['phase_d_signal'] == 1:
+                df.iloc[i, df.columns.get_loc('wyckoff_phase')] = 'D'
+            elif df.iloc[i]['phase_c_signal'] == 1:
+                df.iloc[i, df.columns.get_loc('wyckoff_phase')] = 'C'
+            elif df.iloc[i]['phase_b_signal'] == 1:
+                df.iloc[i, df.columns.get_loc('wyckoff_phase')] = 'B'
+            elif df.iloc[i]['phase_a_signal'] == 1:
+                df.iloc[i, df.columns.get_loc('wyckoff_phase')] = 'A'
+
+        # 6. Enhanced Spring/Upthrust confirmation with SOS/SOW
+        df['spring_confirmed'] = (
+            (df['spring_signal'] == 1) &
+            (df['sign_of_strength'].shift(-1) == 1)  # Next candle is SOS
+        ).astype(int)
+
+        df['upthrust_confirmed'] = (
+            (df['upthrust_signal'] == 1) &
+            (df['sign_of_weakness'].shift(-1) == 1)  # Next candle is SOW
+        ).astype(int)
 
         logging.info(f"   [Features] Wyckoff features creation completed.")
         return df
+
+    def _generate_wyckoff_narrative(self, latest_features):
+        """
+        Generate Wyckoff narrative for Master Agent based on latest features.
+        """
+        narrative_parts = []
+        
+        # Get current Wyckoff phase
+        current_phase = latest_features.get('wyckoff_phase', 'Unknown')
+        if current_phase != 'Unknown':
+            phase_descriptions = {
+                'A': 'Stopping Action - Xu hướng cũ đang dừng lại với khối lượng và biến động cao',
+                'B': 'Building a Cause - Thị trường đang tích lũy trong trading range với biến động thấp',
+                'C': 'The Test - Giai đoạn kiểm tra quan trọng với Spring/Upthrust signals',
+                'D': 'Markup/Markdown - Phá vỡ khỏi trading range với xu hướng mạnh',
+                'E': 'Public Participation - Xu hướng cực mạnh với sự tham gia của công chúng'
+            }
+            narrative_parts.append(f"**Pha Wyckoff hiện tại: {current_phase}** - {phase_descriptions.get(current_phase, '')}")
+        
+        # Check for key signals
+        if latest_features.get('spring_signal', 0) == 1:
+            if latest_features.get('spring_confirmed', 0) == 1:
+                narrative_parts.append("**Tín hiệu Spring được xác nhận** - Giá phá vỡ xuống dưới support nhưng nhanh chóng quay lại, kèm theo Sign of Strength (SOS) ở nến tiếp theo, cho thấy phe mua đang kiểm soát.")
+            else:
+                narrative_parts.append("**Tín hiệu Spring tiềm năng** - Giá phá vỡ xuống dưới support nhưng đóng cửa lại trong range, có thể báo hiệu cơ hội mua.")
+        
+        if latest_features.get('upthrust_signal', 0) == 1:
+            if latest_features.get('upthrust_confirmed', 0) == 1:
+                narrative_parts.append("**Tín hiệu Upthrust được xác nhận** - Giá phá vỡ lên trên resistance nhưng nhanh chóng quay lại, kèm theo Sign of Weakness (SOW) ở nến tiếp theo, cho thấy phe bán đang kiểm soát.")
+            else:
+                narrative_parts.append("**Tín hiệu Upthrust tiềm năng** - Giá phá vỡ lên trên resistance nhưng đóng cửa lại trong range, có thể báo hiệu cơ hội bán.")
+        
+        # Check for SOS/SOW signals
+        if latest_features.get('sign_of_strength', 0) == 1:
+            narrative_parts.append("**Sign of Strength (SOS)** - Nến tăng mạnh với khối lượng cao và đóng cửa gần đỉnh, cho thấy sức mua mạnh.")
+        
+        if latest_features.get('sign_of_weakness', 0) == 1:
+            narrative_parts.append("**Sign of Weakness (SOW)** - Nến giảm mạnh với khối lượng cao và đóng cửa gần đáy, cho thấy sức bán mạnh.")
+        
+        # Check for No Demand/No Supply
+        if latest_features.get('no_demand_signal', 0) == 1:
+            narrative_parts.append("**No Demand** - Nến tăng nhưng khối lượng thấp và spread hẹp, cho thấy sức mua yếu.")
+        
+        if latest_features.get('no_supply_signal', 0) == 1:
+            narrative_parts.append("**No Supply** - Nến giảm nhưng khối lượng thấp và spread hẹp, cho thấy sức bán yếu.")
+        
+        # Market context
+        if latest_features.get('is_in_range', 0) == 1:
+            narrative_parts.append("**Trạng thái thị trường:** Đang trong trading range, chờ tín hiệu phá vỡ.")
+        else:
+            narrative_parts.append("**Trạng thái thị trường:** Đang ngoài trading range, có thể đang trong xu hướng.")
+        
+        if latest_features.get('high_volatility_phase', 0) == 1:
+            narrative_parts.append("**Biến động:** Cao - Thị trường đang có biến động mạnh.")
+        elif latest_features.get('low_volatility_phase', 0) == 1:
+            narrative_parts.append("**Biến động:** Thấp - Thị trường đang tích lũy với biến động thấp.")
+        
+        if not narrative_parts:
+            return "Không có tín hiệu Wyckoff đặc biệt tại thời điểm này."
+        
+        return "\n".join(narrative_parts)
     def create_statistical_features(self, df):
         """Create statistical features"""
         # Returns with multiple periods
@@ -7736,7 +7893,7 @@ class AdvancedFeatureEngineer:
         df = self.create_pattern_features(df)
         df = self.create_volume_features(df)
         df = self.create_market_microstructure_features(df)
-        df = self.create_wyckoff_features(df)
+        df = self.create_wyckoff_features(df, symbol=df.name if hasattr(df, 'name') else 'DEFAULT')
 
         # <<< C I money FEATURE ENGINEERING: G i Function to feature tempty thi thtru ng >>>
         df = self.create_market_regime_feature(df)
@@ -20218,6 +20375,9 @@ class EnhancedTradingBot:
             
             if metrics:
                 key_metrics_text = "\n".join([f"- {metric}" for metric in metrics])
+            
+            # Generate Wyckoff narrative
+            wyckoff_narrative = self._generate_wyckoff_narrative(latest)
         
         # Tạo prompt chi tiết với logic cân bằng hơn
         prompt = f"""
@@ -20237,14 +20397,20 @@ NHIỆM VỤ 3: PHÂN TÍCH CHỈ SỐ THỊ TRƯỜNG CHÍNH
 Key Market Metrics:
 {key_metrics_text}
 
-NHIỆM VỤ 4: RA QUYẾT ĐỊNH CUỐI CÙNG
+NHIỆM VỤ 4: PHÂN TÍCH WYCKOFF
+Wyckoff Analysis:
+{wyckoff_narrative}
+
+NHIỆM VỤ 5: RA QUYẾT ĐỊNH CUỐI CÙNG
 Dựa trên phân tích tổng hợp cả tin tức, luận điểm kỹ thuật và các chỉ số thị trường chính, hãy đưa ra quyết định cuối cùng.
 
 **QUAN TRỌNG:** 
 - Nếu không có tin tức tiêu cực và tín hiệu kỹ thuật mạnh (confidence > 50%), nên APPROVE
 - Chỉ REJECT khi có tin tức tiêu cực rõ ràng hoặc tín hiệu kỹ thuật yếu
 - Crypto markets thường giao dịch dựa trên technical analysis khi không có news
-- Xem xét cả các chỉ số thị trường để đánh giá toàn diện
+- Xem xét cả các chỉ số thị trường và phân tích Wyckoff để đánh giá toàn diện
+- Tín hiệu Spring/Upthrust được xác nhận bởi SOS/SOW là rất mạnh mẽ
+- Phase C (The Test) là giai đoạn quan trọng nhất trong chu kỳ Wyckoff
 
 Chỉ trả về duy nhất một khối JSON với định dạng sau:
 {{
