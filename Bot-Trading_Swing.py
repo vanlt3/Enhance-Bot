@@ -6898,21 +6898,9 @@ class LLMSentimentAnalyzer:
 
         try:
             genai.configure(api_key=api_key)
-            # FIX: Use 'gemini-pro' as the primary stable model
-            model_names = ['gemini-pro', 'gemini-1.5-pro-latest', 'gemini-1.5-flash-latest']  # FIX: Use gemini-pro as primary stable model
-            self.model = None
-            
-            for model_name in model_names:
-                try:
-                    self.model = genai.GenerativeModel(model_name)
-                    print(f"[LLMSentimentAnalyzer] Successfully initialized with model: {model_name}")
-                    break
-                except Exception as model_error:
-                    print(f"[LLMSentimentAnalyzer] Failed to initialize {model_name}: {model_error}")
-                    continue
-            
-            if not self.model:
-                raise Exception("All Gemini model variants failed to initialize")
+            # FIX: Chỉ định model 'gemini-1.5-flash-latest' để tăng khả năng tương thích
+            self.model = genai.GenerativeModel('gemini-1.5-flash-latest')
+            print("[LLMSentimentAnalyzer] Successfully initialized with model: gemini-1.5-flash-latest")
             
             # Test the connection with a simple request
             if self.model:
@@ -21184,12 +21172,14 @@ def rl_execute_production(model, symbols, observation, features_map, get_balance
         tp_price = feats.get("tp_price")
 
         try:
-            resp = _place_market_order(sym, side, units, sl_price, tp_price)
-            txid = resp.get("lastTransactionID") or resp.get("orderCreateTransaction", {}).get("id") or "dry-run"
-            logger.info(f"[OPENED] {sym} {side.upper()} units={units} tx={txid}")
+            # REFACTOR: Send trading signal to Discord instead of executing real trades
+            print(f"📊 [SIGNAL] {sym}: {side.upper()} signal detected - sending to Discord")
+            # resp = _place_market_order(sym, side, units, sl_price, tp_price)  # DISABLED: Real trading
+            txid = "signal-only"  # No real transaction ID for signals
+            logger.info(f"[SIGNAL SENT] {sym} {side.upper()} units={units} tx={txid}")
             any_action = True
         except Exception as e:
-            logger.error(f"[ORDER ERROR] {sym}: {e}")
+            logger.error(f"[SIGNAL ERROR] {sym}: {e}")
 
     if not any_action:
         logger.info("[RL Decision] HOLD (portfolio)")
