@@ -7951,6 +7951,185 @@ class AdvancedFeatureEngineer:
         logging.info(f"   [Features] Wyckoff features creation completed.")
         return df
 
+    def _get_technical_indicators_summary(self, symbol):
+        """
+        Lấy tóm tắt các chỉ báo kỹ thuật chính cho symbol
+        
+        Args:
+            symbol: Mã symbol cần lấy thông tin
+            
+        Returns:
+            str: Tóm tắt các chỉ báo kỹ thuật
+        """
+        try:
+            # Lấy dữ liệu features
+            df_features = self.data_manager.create_enhanced_features(symbol)
+            if df_features is None or df_features.empty:
+                return "Không có dữ liệu chỉ báo kỹ thuật"
+            
+            latest = df_features.iloc[-1]
+            indicators = []
+            
+            # RSI - Chỉ báo momentum
+            rsi_14 = latest.get('rsi_14', 0)
+            if rsi_14 > 0:
+                rsi_signal = "Quá mua" if rsi_14 > 70 else "Quá bán" if rsi_14 < 30 else "Trung tính"
+                indicators.append(f"RSI (14): {rsi_14:.1f} - {rsi_signal}")
+            
+            # MACD - Chỉ báo xu hướng
+            macd = latest.get('macd', 0)
+            macd_signal = latest.get('macd_signal', 0)
+            macd_histogram = latest.get('macd_histogram', 0)
+            if macd != 0 and macd_signal != 0:
+                macd_trend = "Tăng" if macd > macd_signal else "Giảm"
+                macd_momentum = "Tăng tốc" if macd_histogram > 0 else "Giảm tốc"
+                indicators.append(f"MACD: {macd_trend} ({macd_momentum})")
+            
+            # Bollinger Bands - Chỉ báo volatility
+            bb_upper = latest.get('bb_upper', 0)
+            bb_lower = latest.get('bb_lower', 0)
+            close_price = latest.get('close', 0)
+            if bb_upper > 0 and bb_lower > 0 and close_price > 0:
+                bb_position = ((close_price - bb_lower) / (bb_upper - bb_lower)) * 100
+                if bb_position > 80:
+                    bb_signal = "Gần dải trên (có thể bán)"
+                elif bb_position < 20:
+                    bb_signal = "Gần dải dưới (có thể mua)"
+                else:
+                    bb_signal = "Trong dải (trung tính)"
+                indicators.append(f"Bollinger Bands: {bb_position:.1f}% - {bb_signal}")
+            
+            # EMA - Chỉ báo xu hướng
+            ema_20 = latest.get('ema_20', 0)
+            ema_50 = latest.get('ema_50', 0)
+            ema_200 = latest.get('ema_200', 0)
+            if ema_20 > 0 and ema_50 > 0 and ema_200 > 0:
+                if ema_20 > ema_50 > ema_200:
+                    ema_signal = "Xu hướng tăng mạnh"
+                elif ema_20 < ema_50 < ema_200:
+                    ema_signal = "Xu hướng giảm mạnh"
+                elif ema_20 > ema_50:
+                    ema_signal = "Xu hướng tăng yếu"
+                else:
+                    ema_signal = "Xu hướng giảm yếu"
+                indicators.append(f"EMA: {ema_signal}")
+            
+            # ADX - Sức mạnh xu hướng
+            adx = latest.get('adx', 0)
+            if adx > 0:
+                trend_strength = "Mạnh" if adx > 25 else "Yếu"
+                indicators.append(f"ADX: {adx:.1f} - Xu hướng {trend_strength}")
+            
+            # Stochastic - Chỉ báo momentum
+            stoch_k = latest.get('stoch_k', 0)
+            stoch_d = latest.get('stoch_d', 0)
+            if stoch_k > 0 and stoch_d > 0:
+                stoch_signal = "Quá mua" if stoch_k > 80 else "Quá bán" if stoch_k < 20 else "Trung tính"
+                stoch_cross = "Tín hiệu mua" if stoch_k > stoch_d else "Tín hiệu bán"
+                indicators.append(f"Stochastic: {stoch_signal} - {stoch_cross}")
+            
+            # Volume - Chỉ báo sức mạnh
+            volume = latest.get('volume', 0)
+            volume_ema = latest.get('volume_ema', 0)
+            if volume > 0 and volume_ema > 0:
+                volume_ratio = volume / volume_ema
+                volume_signal = "Cao" if volume_ratio > 1.5 else "Thấp" if volume_ratio < 0.5 else "Bình thường"
+                indicators.append(f"Volume: {volume_ratio:.1f}x - {volume_signal}")
+            
+            if indicators:
+                return "\n".join([f"- {indicator}" for indicator in indicators])
+            else:
+                return "Không có chỉ báo kỹ thuật khả dụng"
+                
+        except Exception as e:
+            print(f"⚠️ [Technical Indicators] Lỗi lấy chỉ báo kỹ thuật cho {symbol}: {e}")
+            return "Lỗi khi lấy chỉ báo kỹ thuật"
+    
+    def _get_market_state_summary(self, symbol):
+        """
+        Lấy tóm tắt trạng thái thị trường hiện tại
+        
+        Args:
+            symbol: Mã symbol cần lấy thông tin
+            
+        Returns:
+            str: Tóm tắt trạng thái thị trường
+        """
+        try:
+            # Lấy dữ liệu features
+            df_features = self.data_manager.create_enhanced_features(symbol)
+            if df_features is None or df_features.empty:
+                return "Không có dữ liệu trạng thái thị trường"
+            
+            latest = df_features.iloc[-1]
+            state_info = []
+            
+            # Market Regime - Trending/Ranging
+            market_regime = latest.get('market_regime', 0)
+            regime_text = "Xu hướng (Trending)" if market_regime != 0 else "Đi ngang (Ranging)"
+            state_info.append(f"Chế độ thị trường: {regime_text}")
+            
+            # Volatility Regime
+            volatility_regime = latest.get('volatility_regime', 0)
+            vol_regime_text = "Cao" if volatility_regime > 0 else "Thấp"
+            state_info.append(f"Biến động: {vol_regime_text}")
+            
+            # Price Momentum
+            roc = latest.get('roc', 0)
+            if roc != 0:
+                momentum_direction = "Tích cực" if roc > 0 else "Tiêu cực"
+                momentum_strength = "Mạnh" if abs(roc) > 2 else "Yếu"
+                state_info.append(f"Động lượng giá: {momentum_direction} ({momentum_strength})")
+            
+            # Trend Strength
+            adx = latest.get('adx', 0)
+            if adx > 0:
+                trend_strength = "Mạnh" if adx > 25 else "Yếu"
+                state_info.append(f"Sức mạnh xu hướng: {trend_strength}")
+            
+            # Support/Resistance Levels
+            close_price = latest.get('close', 0)
+            bb_upper = latest.get('bb_upper', 0)
+            bb_lower = latest.get('bb_lower', 0)
+            if close_price > 0 and bb_upper > 0 and bb_lower > 0:
+                if close_price > bb_upper:
+                    level_signal = "Phá vỡ kháng cự"
+                elif close_price < bb_lower:
+                    level_signal = "Phá vỡ hỗ trợ"
+                else:
+                    level_signal = "Trong phạm vi bình thường"
+                state_info.append(f"Mức hỗ trợ/kháng cự: {level_signal}")
+            
+            # Market Sentiment (dựa trên RSI)
+            rsi_14 = latest.get('rsi_14', 0)
+            if rsi_14 > 0:
+                if rsi_14 > 70:
+                    sentiment = "Quá mua (có thể điều chỉnh)"
+                elif rsi_14 < 30:
+                    sentiment = "Quá bán (có thể phục hồi)"
+                else:
+                    sentiment = "Cân bằng"
+                state_info.append(f"Tâm lý thị trường: {sentiment}")
+            
+            # Time-based Analysis
+            current_hour = datetime.now().hour
+            if 9 <= current_hour <= 16:
+                session = "Phiên chính (High liquidity)"
+            elif 0 <= current_hour <= 8:
+                session = "Phiên sớm (Low liquidity)"
+            else:
+                session = "Phiên muộn (Medium liquidity)"
+            state_info.append(f"Thời gian giao dịch: {session}")
+            
+            if state_info:
+                return "\n".join([f"- {info}" for info in state_info])
+            else:
+                return "Không có thông tin trạng thái thị trường"
+                
+        except Exception as e:
+            print(f"⚠️ [Market State] Lỗi lấy trạng thái thị trường cho {symbol}: {e}")
+            return "Lỗi khi lấy trạng thái thị trường"
+
     def _generate_wyckoff_narrative(self, latest_features):
         """
         Generate Wyckoff narrative for Master Agent based on latest features.
@@ -8398,6 +8577,26 @@ class EnhancedEnsembleModel:
         # Initialize UltraOverfittingPrevention
         self.ultra_prevention = UltraOverfittingPrevention()
         print("✅ [UltraOverfittingPrevention] Initialized in EnhancedEnsembleModel")
+        
+        # === CẢI TIẾN: DYNAMIC WEIGHTING SYSTEM ===
+        # Hệ thống tự động điều chỉnh trọng số dựa trên hiệu suất gần đây
+        self.model_weights = {}  # Trọng số cố định ban đầu
+        self.dynamic_weights = {}  # Trọng số động dựa trên hiệu suất
+        self.performance_history = {}  # Lịch sử hiệu suất của từng mô hình
+        self.performance_window = 30  # Số lượng dự đoán gần đây để đánh giá
+        self.min_weight = 0.1  # Trọng số tối thiểu cho bất kỳ mô hình nào
+        self.max_weight = 0.7  # Trọng số tối đa cho bất kỳ mô hình nào
+        self.weight_update_frequency = 10  # Cập nhật trọng số mỗi N dự đoán
+        self.prediction_count = 0  # Đếm số lần dự đoán để cập nhật trọng số
+        
+        # === CẢI TIẾN: SHAP INTEGRATION ===
+        # Tích hợp SHAP để giải thích dự đoán
+        self.shap_explainer = None
+        self.shap_values_cache = {}
+        self.explainability_enabled = True
+        
+        print("✅ [EnhancedEnsembleModel] Dynamic weighting system initialized")
+        print("✅ [EnhancedEnsembleModel] SHAP explainability system initialized")
     def enhanced_time_series_split(self, X, y, n_splits=5, gap=0, max_train_size=None):
         """Enhanced time series split with gap and purging"""
         n_samples = len(X)
@@ -8498,6 +8697,239 @@ class EnhancedEnsembleModel:
                 }
 
         return explanations
+
+    # === CẢI TIẾN: DYNAMIC WEIGHTING METHODS ===
+    
+    def update_model_performance(self, model_name, prediction_accuracy):
+        """
+        Cập nhật hiệu suất của một mô hình cụ thể
+        
+        Args:
+            model_name: Tên mô hình (vd: 'xgb', 'rf')
+            prediction_accuracy: Độ chính xác dự đoán (0-1)
+        """
+        try:
+            if model_name not in self.performance_history:
+                self.performance_history[model_name] = []
+            
+            # Thêm hiệu suất mới vào lịch sử
+            self.performance_history[model_name].append(prediction_accuracy)
+            
+            # Giữ chỉ số lượng gần đây nhất
+            if len(self.performance_history[model_name]) > self.performance_window:
+                self.performance_history[model_name] = self.performance_history[model_name][-self.performance_window:]
+            
+            # Tăng bộ đếm dự đoán
+            self.prediction_count += 1
+            
+            # Cập nhật trọng số động nếu đã đủ số lần
+            if self.prediction_count % self.weight_update_frequency == 0:
+                self._update_dynamic_weights()
+                
+        except Exception as e:
+            print(f"⚠️ [Dynamic Weighting] Lỗi cập nhật hiệu suất mô hình {model_name}: {e}")
+    
+    def _update_dynamic_weights(self):
+        """
+        Cập nhật trọng số động dựa trên hiệu suất gần đây của các mô hình
+        """
+        try:
+            if not self.performance_history:
+                return
+            
+            # Tính hiệu suất trung bình cho từng mô hình
+            model_performances = {}
+            for model_name, scores in self.performance_history.items():
+                if scores:
+                    # Sử dụng trung bình có trọng số (gần đây hơn có trọng số cao hơn)
+                    weights = np.linspace(0.5, 1.0, len(scores))
+                    weighted_avg = np.average(scores, weights=weights)
+                    model_performances[model_name] = weighted_avg
+            
+            if not model_performances:
+                return
+            
+            # Tính trọng số mới dựa trên hiệu suất
+            total_performance = sum(model_performances.values())
+            if total_performance == 0:
+                return
+            
+            new_weights = {}
+            for model_name, performance in model_performances.items():
+                # Chuyển đổi hiệu suất thành trọng số
+                raw_weight = performance / total_performance
+                
+                # Áp dụng giới hạn min/max
+                raw_weight = max(self.min_weight, min(self.max_weight, raw_weight))
+                new_weights[model_name] = raw_weight
+            
+            # Chuẩn hóa để tổng trọng số = 1
+            total_weight = sum(new_weights.values())
+            if total_weight > 0:
+                for model_name in new_weights:
+                    new_weights[model_name] /= total_weight
+            
+            self.dynamic_weights = new_weights
+            
+            print(f"⚖️ [Dynamic Weighting] Trọng số đã cập nhật: {new_weights}")
+            
+        except Exception as e:
+            print(f"⚠️ [Dynamic Weighting] Lỗi cập nhật trọng số động: {e}")
+    
+    def get_dynamic_weights(self):
+        """
+        Lấy trọng số động hiện tại
+        
+        Returns:
+            dict: Trọng số động của các mô hình
+        """
+        if self.dynamic_weights:
+            return self.dynamic_weights.copy()
+        else:
+            # Trả về trọng số mặc định nếu chưa có trọng số động
+            if hasattr(self, 'models') and self.models:
+                equal_weight = 1.0 / len(self.models)
+                return {name: equal_weight for name in self.models.keys()}
+            return {}
+    
+    # === CẢI TIẾN: SHAP EXPLAINABILITY METHODS ===
+    
+    def explain_prediction(self, X_sample, feature_names=None):
+        """
+        Giải thích dự đoán sử dụng SHAP
+        
+        Args:
+            X_sample: Mẫu dữ liệu cần giải thích
+            feature_names: Tên các đặc trưng
+            
+        Returns:
+            dict: Giải thích dự đoán với SHAP values
+        """
+        try:
+            if not self.explainability_enabled:
+                return {"error": "SHAP explainability is disabled"}
+            
+            # Kiểm tra xem có mô hình nào không
+            if not hasattr(self, 'models') or not self.models:
+                return {"error": "No models available for explanation"}
+            
+            explanations = {}
+            
+            # Tạo cache key cho mẫu này
+            sample_hash = hash(str(X_sample))
+            
+            for model_name, model in self.models.items():
+                try:
+                    # Kiểm tra cache trước
+                    cache_key = f"{model_name}_{sample_hash}"
+                    if cache_key in self.shap_values_cache:
+                        explanations[model_name] = self.shap_values_cache[cache_key]
+                        continue
+                    
+                    # Tạo SHAP explainer nếu chưa có
+                    if self.shap_explainer is None or model_name not in getattr(self.shap_explainer, 'models', {}):
+                        self._initialize_shap_explainer(model_name, model)
+                    
+                    # Tính SHAP values
+                    if hasattr(self, 'shap_explainer') and self.shap_explainer:
+                        # Sử dụng TreeExplainer cho tree-based models
+                        if hasattr(model, 'predict_proba'):
+                            # Tạo explainer cho mô hình này
+                            try:
+                                import shap
+                                explainer = shap.TreeExplainer(model)
+                                shap_values = explainer.shap_values(X_sample.reshape(1, -1))
+                                
+                                # Xử lý kết quả
+                                if isinstance(shap_values, list):
+                                    shap_values = shap_values[1]  # Lấy class 1
+                                
+                                # Tạo feature names nếu chưa có
+                                if feature_names is None:
+                                    feature_names = [f"feature_{i}" for i in range(len(X_sample))]
+                                
+                                # Tạo explanation
+                                explanation = {
+                                    'model_name': model_name,
+                                    'prediction': model.predict_proba(X_sample.reshape(1, -1))[0, 1],
+                                    'shap_values': shap_values[0].tolist() if hasattr(shap_values, 'tolist') else shap_values.tolist(),
+                                    'feature_names': feature_names,
+                                    'base_value': explainer.expected_value[1] if isinstance(explainer.expected_value, np.ndarray) else explainer.expected_value,
+                                    'top_features': self._get_top_shap_features(shap_values[0], feature_names, top_k=10)
+                                }
+                                
+                                explanations[model_name] = explanation
+                                
+                                # Lưu vào cache
+                                self.shap_values_cache[cache_key] = explanation
+                                
+                            except Exception as e:
+                                print(f"⚠️ [SHAP] Lỗi tính SHAP cho {model_name}: {e}")
+                                explanations[model_name] = {"error": f"SHAP calculation failed: {str(e)}"}
+                    
+                except Exception as e:
+                    print(f"⚠️ [SHAP] Lỗi xử lý mô hình {model_name}: {e}")
+                    explanations[model_name] = {"error": f"Model processing failed: {str(e)}"}
+            
+            return explanations
+            
+        except Exception as e:
+            print(f"⚠️ [SHAP] Lỗi tổng quát trong explain_prediction: {e}")
+            return {"error": f"General explanation error: {str(e)}"}
+    
+    def _initialize_shap_explainer(self, model_name, model):
+        """
+        Khởi tạo SHAP explainer cho mô hình
+        
+        Args:
+            model_name: Tên mô hình
+            model: Mô hình cần khởi tạo explainer
+        """
+        try:
+            import shap
+            
+            # Khởi tạo explainer dựa trên loại mô hình
+            if hasattr(model, 'predict_proba'):
+                if 'tree' in str(type(model)).lower() or 'forest' in str(type(model)).lower():
+                    # Tree-based models
+                    self.shap_explainer = shap.TreeExplainer(model)
+                else:
+                    # Linear models
+                    self.shap_explainer = shap.LinearExplainer(model, np.zeros((1, model.n_features_in_)))
+            
+            print(f"✅ [SHAP] Đã khởi tạo explainer cho {model_name}")
+            
+        except ImportError:
+            print("⚠️ [SHAP] Thư viện SHAP chưa được cài đặt. Cài đặt bằng: pip install shap")
+            self.explainability_enabled = False
+        except Exception as e:
+            print(f"⚠️ [SHAP] Lỗi khởi tạo explainer cho {model_name}: {e}")
+    
+    def _get_top_shap_features(self, shap_values, feature_names, top_k=10):
+        """
+        Lấy top K đặc trưng có ảnh hưởng lớn nhất
+        
+        Args:
+            shap_values: SHAP values
+            feature_names: Tên các đặc trưng
+            top_k: Số lượng đặc trưng top
+            
+        Returns:
+            list: Danh sách top đặc trưng với giá trị SHAP
+        """
+        try:
+            # Tạo danh sách (feature_name, shap_value)
+            feature_impacts = list(zip(feature_names, shap_values))
+            
+            # Sắp xếp theo giá trị tuyệt đối của SHAP
+            feature_impacts.sort(key=lambda x: abs(x[1]), reverse=True)
+            
+            # Trả về top K
+            return feature_impacts[:top_k]
+            
+        except Exception as e:
+            print(f"⚠️ [SHAP] Lỗi lấy top features: {e}")
+            return []
 
 class OrderSafetyManager:
     """Advanced order safety with multiple validation layers"""
@@ -9991,6 +10423,293 @@ class EnsembleModel:
             logging.error(f"EnsembleModel.predict_proba_on_df: Li nghim trng - {e}")
             return np.full(len(X) if hasattr(X, '__len__') else 1, 0.5)
 
+class AdvancedFeatureStore:
+    """
+    Lớp quản lý Feature Store sử dụng SQLite để lưu trữ và truy xuất các đặc trưng
+    """
+    
+    def __init__(self, db_path="feature_store.db"):
+        self.db_path = db_path
+        self._init_database()
+    
+    def _init_database(self):
+        """Khởi tạo database và tạo bảng nếu chưa có"""
+        try:
+            import sqlite3
+            self.conn = sqlite3.connect(self.db_path, check_same_thread=False)
+            self.conn.execute('''
+                CREATE TABLE IF NOT EXISTS features (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    symbol TEXT NOT NULL,
+                    timestamp TEXT NOT NULL,
+                    timeframe TEXT NOT NULL,
+                    feature_name TEXT NOT NULL,
+                    feature_value REAL NOT NULL,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(symbol, timestamp, timeframe, feature_name)
+                )
+            ''')
+            
+            # Tạo index để tăng tốc độ truy vấn
+            self.conn.execute('''
+                CREATE INDEX IF NOT EXISTS idx_symbol_timestamp 
+                ON features(symbol, timestamp, timeframe)
+            ''')
+            
+            self.conn.execute('''
+                CREATE INDEX IF NOT EXISTS idx_feature_name 
+                ON features(feature_name)
+            ''')
+            
+            self.conn.commit()
+            print(f"✅ [Feature Store] Database initialized: {self.db_path}")
+            
+        except Exception as e:
+            print(f"❌ [Feature Store] Lỗi khởi tạo database: {e}")
+    
+    def store_features(self, symbol, timestamp, features_dict, timeframe="H4"):
+        """
+        Lưu các đặc trưng vào database
+        
+        Args:
+            symbol: Mã symbol
+            timestamp: Thời gian (datetime hoặc string)
+            features_dict: Dictionary chứa các đặc trưng
+            timeframe: Khung thời gian
+        """
+        try:
+            import sqlite3
+            
+            # Chuyển đổi timestamp thành string
+            if hasattr(timestamp, 'isoformat'):
+                timestamp_str = timestamp.isoformat()
+            else:
+                timestamp_str = str(timestamp)
+            
+            # Chuẩn bị dữ liệu để insert
+            data_to_insert = []
+            for feature_name, feature_value in features_dict.items():
+                if feature_value is not None and not (isinstance(feature_value, float) and np.isnan(feature_value)):
+                    data_to_insert.append((
+                        symbol,
+                        timestamp_str,
+                        timeframe,
+                        feature_name,
+                        float(feature_value)
+                    ))
+            
+            if not data_to_insert:
+                return
+            
+            # Insert dữ liệu (sử dụng REPLACE để tránh duplicate)
+            cursor = self.conn.cursor()
+            cursor.executemany('''
+                INSERT OR REPLACE INTO features 
+                (symbol, timestamp, timeframe, feature_name, feature_value)
+                VALUES (?, ?, ?, ?, ?)
+            ''', data_to_insert)
+            
+            self.conn.commit()
+            print(f"✅ [Feature Store] Stored {len(data_to_insert)} features for {symbol} at {timestamp_str}")
+            
+        except Exception as e:
+            print(f"❌ [Feature Store] Lỗi lưu features cho {symbol}: {e}")
+    
+    def get_features(self, symbol, start_time, end_time, timeframe="H4", feature_names=None):
+        """
+        Lấy các đặc trưng từ database
+        
+        Args:
+            symbol: Mã symbol
+            start_time: Thời gian bắt đầu
+            end_time: Thời gian kết thúc
+            timeframe: Khung thời gian
+            feature_names: Danh sách tên đặc trưng cần lấy (None = lấy tất cả)
+            
+        Returns:
+            DataFrame: Dữ liệu đặc trưng
+        """
+        try:
+            import pandas as pd
+            import sqlite3
+            
+            # Chuyển đổi thời gian thành string
+            if hasattr(start_time, 'isoformat'):
+                start_time_str = start_time.isoformat()
+            else:
+                start_time_str = str(start_time)
+                
+            if hasattr(end_time, 'isoformat'):
+                end_time_str = end_time.isoformat()
+            else:
+                end_time_str = str(end_time)
+            
+            # Xây dựng query
+            query = '''
+                SELECT timestamp, feature_name, feature_value
+                FROM features
+                WHERE symbol = ? AND timeframe = ? 
+                AND timestamp >= ? AND timestamp <= ?
+            '''
+            params = [symbol, timeframe, start_time_str, end_time_str]
+            
+            if feature_names:
+                placeholders = ','.join(['?' for _ in feature_names])
+                query += f' AND feature_name IN ({placeholders})'
+                params.extend(feature_names)
+            
+            query += ' ORDER BY timestamp, feature_name'
+            
+            # Thực hiện query
+            cursor = self.conn.cursor()
+            cursor.execute(query, params)
+            results = cursor.fetchall()
+            
+            if not results:
+                print(f"⚠️ [Feature Store] Không tìm thấy features cho {symbol} trong khoảng thời gian {start_time_str} - {end_time_str}")
+                return pd.DataFrame()
+            
+            # Chuyển đổi thành DataFrame
+            df = pd.DataFrame(results, columns=['timestamp', 'feature_name', 'feature_value'])
+            df['timestamp'] = pd.to_datetime(df['timestamp'])
+            
+            # Pivot để có format phù hợp
+            df_pivot = df.pivot(index='timestamp', columns='feature_name', values='feature_value')
+            df_pivot = df_pivot.reset_index()
+            
+            print(f"✅ [Feature Store] Retrieved {len(df_pivot)} records for {symbol}")
+            return df_pivot
+            
+        except Exception as e:
+            print(f"❌ [Feature Store] Lỗi lấy features cho {symbol}: {e}")
+            return pd.DataFrame()
+    
+    def get_latest_features(self, symbol, timeframe="H4", feature_names=None):
+        """
+        Lấy các đặc trưng mới nhất cho symbol
+        
+        Args:
+            symbol: Mã symbol
+            timeframe: Khung thời gian
+            feature_names: Danh sách tên đặc trưng cần lấy
+            
+        Returns:
+            Series: Đặc trưng mới nhất
+        """
+        try:
+            import pandas as pd
+            
+            # Lấy timestamp mới nhất
+            cursor = self.conn.cursor()
+            cursor.execute('''
+                SELECT MAX(timestamp) FROM features 
+                WHERE symbol = ? AND timeframe = ?
+            ''', [symbol, timeframe])
+            
+            result = cursor.fetchone()
+            if not result or not result[0]:
+                print(f"⚠️ [Feature Store] Không tìm thấy features cho {symbol}")
+                return pd.Series()
+            
+            latest_timestamp = result[0]
+            
+            # Lấy tất cả features tại timestamp này
+            query = '''
+                SELECT feature_name, feature_value
+                FROM features
+                WHERE symbol = ? AND timeframe = ? AND timestamp = ?
+            '''
+            params = [symbol, timeframe, latest_timestamp]
+            
+            if feature_names:
+                placeholders = ','.join(['?' for _ in feature_names])
+                query += f' AND feature_name IN ({placeholders})'
+                params.extend(feature_names)
+            
+            cursor.execute(query, params)
+            results = cursor.fetchall()
+            
+            if not results:
+                return pd.Series()
+            
+            # Chuyển đổi thành Series
+            features_dict = {row[0]: row[1] for row in results}
+            return pd.Series(features_dict)
+            
+        except Exception as e:
+            print(f"❌ [Feature Store] Lỗi lấy latest features cho {symbol}: {e}")
+            return pd.Series()
+    
+    def cleanup_old_features(self, days_to_keep=30):
+        """
+        Dọn dẹp các đặc trưng cũ
+        
+        Args:
+            days_to_keep: Số ngày giữ lại
+        """
+        try:
+            from datetime import datetime, timedelta
+            
+            cutoff_date = datetime.now() - timedelta(days=days_to_keep)
+            cutoff_str = cutoff_date.isoformat()
+            
+            cursor = self.conn.cursor()
+            cursor.execute('''
+                DELETE FROM features 
+                WHERE timestamp < ?
+            ''', [cutoff_str])
+            
+            deleted_count = cursor.rowcount
+            self.conn.commit()
+            
+            print(f"✅ [Feature Store] Cleaned up {deleted_count} old features (older than {days_to_keep} days)")
+            
+        except Exception as e:
+            print(f"❌ [Feature Store] Lỗi cleanup old features: {e}")
+    
+    def get_feature_statistics(self):
+        """Lấy thống kê về Feature Store"""
+        try:
+            cursor = self.conn.cursor()
+            
+            # Tổng số records
+            cursor.execute('SELECT COUNT(*) FROM features')
+            total_records = cursor.fetchone()[0]
+            
+            # Số symbols
+            cursor.execute('SELECT COUNT(DISTINCT symbol) FROM features')
+            total_symbols = cursor.fetchone()[0]
+            
+            # Số features
+            cursor.execute('SELECT COUNT(DISTINCT feature_name) FROM features')
+            total_features = cursor.fetchone()[0]
+            
+            # Thời gian mới nhất
+            cursor.execute('SELECT MAX(timestamp) FROM features')
+            latest_timestamp = cursor.fetchone()[0]
+            
+            stats = {
+                'total_records': total_records,
+                'total_symbols': total_symbols,
+                'total_features': total_features,
+                'latest_timestamp': latest_timestamp
+            }
+            
+            return stats
+            
+        except Exception as e:
+            print(f"❌ [Feature Store] Lỗi lấy statistics: {e}")
+            return {}
+    
+    def close(self):
+        """Đóng kết nối database"""
+        try:
+            if hasattr(self, 'conn'):
+                self.conn.close()
+                print("✅ [Feature Store] Database connection closed")
+        except Exception as e:
+            print(f"❌ [Feature Store] Lỗi đóng database: {e}")
+
 class EnhancedDataManager:
     def __init__(self, news_manager=None):
         # Store news_manager reference
@@ -9998,6 +10717,10 @@ class EnhancedDataManager:
         
         # Initialize feature engineer
         self.feature_engineer = AdvancedFeatureEngineer()
+        
+        # === CẢI TIẾN: TÍCH HỢP ADVANCED FEATURE STORE ===
+        # Khởi tạo Feature Store để lưu trữ và truy xuất đặc trưng
+        self.feature_store = AdvancedFeatureStore()
         
         # Performance optimization: Cache for feature creation
         self._feature_cache = {}
@@ -10423,10 +11146,32 @@ class EnhancedDataManager:
 
     def create_enhanced_features(self, symbol):
             """
-            T o features nng cao tmulti-timeframe data.
+            T o features nng cao tmulti-timeframe data với tích hợp Feature Store
             """
             primary_tf = PRIMARY_TIMEFRAME_BY_SYMBOL.get(symbol, PRIMARY_TIMEFRAME_DEFAULT)
             timeframes_to_use = TIMEFRAME_SET_BY_PRIMARY.get(primary_tf)
+
+            # === CẢI TIẾN: KIỂM TRA FEATURE STORE TRƯỚC KHI TÍNH TOÁN ===
+            # Kiểm tra xem có thể lấy features từ Feature Store không
+            try:
+                from datetime import datetime, timedelta
+                
+                # Lấy features từ 7 ngày gần đây
+                end_time = datetime.now()
+                start_time = end_time - timedelta(days=7)
+                
+                cached_features = self.feature_store.get_features(
+                    symbol, start_time, end_time, primary_tf
+                )
+                
+                if not cached_features.empty:
+                    print(f"✅ [Feature Store] Sử dụng cached features cho {symbol} ({len(cached_features)} records)")
+                    return cached_features
+                else:
+                    print(f"ℹ️ [Feature Store] Không có cached features cho {symbol}, tính toán mới...")
+                    
+            except Exception as e:
+                print(f"⚠️ [Feature Store] Lỗi kiểm tra cached features cho {symbol}: {e}")
 
             multi_tf_data = self.fetch_multi_timeframe_data(symbol, 5000, timeframes_to_use)
             logging.info(f"[Sanity] weekend={is_weekend()} sym={symbol} crypto={is_crypto_symbol(symbol)} primary_tf={primary_tf}")
@@ -10541,6 +11286,29 @@ class EnhancedDataManager:
                 for col in news_columns:
                     if col not in df_enhanced.columns:
                         df_enhanced[col] = 0.0
+
+            # === CẢI TIẾN: LƯU FEATURES VÀO FEATURE STORE ===
+            # Lưu các features đã tính toán vào Feature Store để sử dụng lần sau
+            try:
+                print(f"💾 [Feature Store] Lưu features cho {symbol}...")
+                
+                # Lấy timestamp từ index
+                timestamps = df_enhanced.index
+                
+                # Lưu từng timestamp vào Feature Store
+                for timestamp in timestamps:
+                    # Lấy features tại timestamp này
+                    features_dict = df_enhanced.loc[timestamp].to_dict()
+                    
+                    # Lưu vào Feature Store
+                    self.feature_store.store_features(
+                        symbol, timestamp, features_dict, primary_tf
+                    )
+                
+                print(f"✅ [Feature Store] Đã lưu {len(timestamps)} timestamps cho {symbol}")
+                
+            except Exception as e:
+                print(f"⚠️ [Feature Store] Lỗi lưu features cho {symbol}: {e}")
 
             return df_enhanced
 
@@ -11075,20 +11843,53 @@ class PortfolioEnvironment(gym.Env):
         else:
             reward = step_return
         
-        # --- 1. DRAWDOWN PENALTY ---
+        # --- 1. ENHANCED DRAWDOWN PENALTY ---
         if not hasattr(self, 'peak_balance'):
             self.peak_balance = self.initial_balance
         self.peak_balance = max(self.peak_balance, self.balance)
         
         current_drawdown = (self.peak_balance - self.balance) / self.peak_balance if self.peak_balance > 0 else 0
-        drawdown_penalty = current_drawdown * 0.1  # 10% penalty for each 1% drawdown
+        
+        # Phạt drawdown với mức phạt tăng dần theo mức độ
+        if current_drawdown <= 0.05:  # Drawdown <= 5%
+            drawdown_penalty = current_drawdown * 0.1  # 10% penalty for each 1% drawdown
+        elif current_drawdown <= 0.15:  # Drawdown 5-15%
+            drawdown_penalty = 0.05 * 0.1 + (current_drawdown - 0.05) * 0.2  # Tăng lên 20%
+        else:  # Drawdown > 15% - phạt nặng
+            drawdown_penalty = 0.05 * 0.1 + 0.1 * 0.2 + (current_drawdown - 0.15) * 0.5  # Tăng lên 50%
+        
+        # Phạt bổ sung nếu drawdown vượt quá ngưỡng nghiêm trọng
+        if current_drawdown > 0.15:  # Vượt quá 15%
+            severe_drawdown_penalty = 0.1  # Phạt thêm 10%
+            drawdown_penalty += severe_drawdown_penalty
+        
         reward -= drawdown_penalty
         
-        # --- 2. TRANSACTION COST PENALTY ---
-        transaction_cost = 0.0005  # 0.05% per transaction
+        # --- 2. ENHANCED TRANSACTION COST PENALTY ---
+        # Phạt chi phí giao dịch với mức phạt khác nhau cho từng loại giao dịch
+        transaction_cost_base = 0.0005  # 0.05% per transaction cơ bản
+        transaction_cost_penalty = 0.0002  # 0.02% phạt bổ sung cho mỗi giao dịch
+        
         num_transactions = np.sum(action_vector != 0)  # Count non-HOLD actions
-        transaction_penalty = num_transactions * transaction_cost
-        reward -= transaction_penalty
+        num_buy_actions = np.sum(action_vector == 1)  # Số lệnh mua
+        num_sell_actions = np.sum(action_vector == 2)  # Số lệnh bán
+        
+        # Chi phí giao dịch cơ bản
+        base_transaction_penalty = num_transactions * transaction_cost_base
+        
+        # Phạt bổ sung cho giao dịch quá nhiều (overtrading)
+        if num_transactions > 2:  # Nếu có hơn 2 giao dịch trong 1 step
+            overtrading_penalty = (num_transactions - 2) * transaction_cost_penalty
+        else:
+            overtrading_penalty = 0
+        
+        # Phạt cho việc đảo chiều nhanh (mua rồi bán ngay hoặc ngược lại)
+        reversal_penalty = 0
+        if num_buy_actions > 0 and num_sell_actions > 0:
+            reversal_penalty = 0.001  # Phạt 0.1% cho việc đảo chiều
+        
+        total_transaction_penalty = base_transaction_penalty + overtrading_penalty + reversal_penalty
+        reward -= total_transaction_penalty
         
         # --- 3. SORTINO/CALMAR RATIO REWARD ---
         if len(self.returns_history) > 10:  # Need sufficient history
@@ -19911,12 +20712,313 @@ class EnhancedTradingBot:
                 print(f"   [Historical SL] Li Check {symbol}: {e}")
                 continue
 
-    # REFACTOR: Removed check_existing_positions function
-    # Bot now only sends signals to Discord instead of managing positions
-    # REFACTOR: Removed close_all_non_crypto_positions_for_weekend and check_and_execute_weekend_close functions
-    # Bot now only sends signals to Discord instead of managing positions
-    # REFACTOR: Removed update_trailing_stop function
-    # Bot now only sends signals to Discord instead of managing positions
+    # === CẢI TIẾN: HỆ THỐNG CHỐT LỜI TỪNG PHẦN VÀ STOP LOSS THEO THỜI GIAN ===
+    
+    def check_existing_positions(self, live_data_cache=None):
+        """
+        Kiểm tra và quản lý các vị thế đang mở với hệ thống chốt lời từng phần và stop loss theo thời gian
+        """
+        try:
+            if not self.open_positions:
+                return
+            
+            print(f"🔍 [Position Management] Kiểm tra {len(self.open_positions)} vị thế đang mở...")
+            
+            for symbol, position in list(self.open_positions.items()):
+                try:
+                    # Lấy dữ liệu thị trường
+                    if live_data_cache and symbol in live_data_cache:
+                        current_data = live_data_cache[symbol]
+                    else:
+                        current_data = self.data_manager.fetch_multi_timeframe_data(symbol, count=50)
+                        if not current_data:
+                            continue
+                    
+                    primary_tf = PRIMARY_TIMEFRAME_BY_SYMBOL.get(symbol, PRIMARY_TIMEFRAME)
+                    df = current_data.get(primary_tf)
+                    if df is None or df.empty:
+                        continue
+                    
+                    current_price = df['close'].iloc[-1]
+                    current_time = datetime.now()
+                    
+                    # Kiểm tra stop loss theo thời gian
+                    self._check_time_based_stop_loss(symbol, position, current_time)
+                    
+                    # Kiểm tra chốt lời từng phần
+                    self._check_partial_take_profit(symbol, position, current_price, df)
+                    
+                    # Kiểm tra stop loss thông thường
+                    self._check_regular_stop_loss(symbol, position, current_price)
+                    
+                except Exception as e:
+                    print(f"⚠️ [Position Management] Lỗi xử lý vị thế {symbol}: {e}")
+                    continue
+            
+            # Lưu trạng thái vị thế
+            save_open_positions(self.open_positions)
+            
+        except Exception as e:
+            print(f"❌ [Position Management] Lỗi tổng quát: {e}")
+    
+    def _check_time_based_stop_loss(self, symbol, position, current_time):
+        """
+        Kiểm tra stop loss theo thời gian - đóng vị thế nếu mở quá lâu mà không có lợi nhuận
+        """
+        try:
+            # Lấy thời gian mở vị thế
+            opened_at = position.get('opened_at')
+            if not opened_at:
+                return
+            
+            # Chuyển đổi thành datetime nếu cần
+            if isinstance(opened_at, str):
+                opened_at = datetime.fromisoformat(opened_at.replace('Z', '+00:00'))
+            elif hasattr(opened_at, 'replace'):
+                opened_at = opened_at.replace(tzinfo=None)
+            
+            # Tính thời gian đã mở (tính bằng số cây nến H4)
+            time_open = current_time - opened_at
+            hours_open = time_open.total_seconds() / 3600
+            candles_h4_open = hours_open / 4  # Mỗi cây nến H4 = 4 giờ
+            
+            # Ngưỡng thời gian tối đa (15 cây nến H4 = 60 giờ)
+            max_candles_h4 = 15
+            
+            # Kiểm tra lợi nhuận hiện tại
+            entry_price = position.get('entry_price', 0)
+            current_price = position.get('current_price', entry_price)
+            direction = position.get('direction', 'BUY')
+            
+            if entry_price > 0:
+                if direction.upper() == 'BUY':
+                    profit_pct = (current_price - entry_price) / entry_price
+                else:
+                    profit_pct = (entry_price - current_price) / entry_price
+            else:
+                profit_pct = 0
+            
+            # Điều kiện stop loss theo thời gian
+            if candles_h4_open > max_candles_h4 and profit_pct < 0.005:  # Lợi nhuận < 0.5%
+                print(f"⏰ [Time Stop] {symbol}: Đóng vị thế do mở quá lâu ({candles_h4_open:.1f} cây nến H4) với lợi nhuận thấp ({profit_pct:.2%})")
+                
+                # Gửi thông báo Discord
+                self._send_time_stop_alert(symbol, position, candles_h4_open, profit_pct)
+                
+                # Đóng vị thế
+                self._close_position(symbol, "Time Stop", current_price)
+                
+        except Exception as e:
+            print(f"⚠️ [Time Stop] Lỗi kiểm tra stop loss theo thời gian cho {symbol}: {e}")
+    
+    def _check_partial_take_profit(self, symbol, position, current_price, df):
+        """
+        Kiểm tra và thực hiện chốt lời từng phần với 2 mức TP
+        """
+        try:
+            entry_price = position.get('entry_price', 0)
+            direction = position.get('direction', 'BUY')
+            tp1_hit = position.get('tp1_hit', False)
+            tp2_hit = position.get('tp2_hit', False)
+            
+            if entry_price <= 0:
+                return
+            
+            # Tính lợi nhuận hiện tại
+            if direction.upper() == 'BUY':
+                profit_pct = (current_price - entry_price) / entry_price
+                profit_ratio = profit_pct / 0.01  # Chuyển đổi thành R (1% = 1R)
+            else:
+                profit_pct = (entry_price - current_price) / entry_price
+                profit_ratio = profit_pct / 0.01
+            
+            # Mức TP1: 1.5R (1.5%)
+            tp1_ratio = 1.5
+            # Mức TP2: 3R (3%)
+            tp2_ratio = 3.0
+            
+            # Kiểm tra TP1
+            if not tp1_hit and profit_ratio >= tp1_ratio:
+                print(f"🎯 [Partial TP] {symbol}: Chạm TP1 ({tp1_ratio}R) - Chốt lời 50%")
+                
+                # Chốt lời 50% vị thế
+                self._execute_partial_take_profit(symbol, position, current_price, 0.5, "TP1")
+                
+                # Dời Stop Loss về điểm hòa vốn
+                self._move_stop_loss_to_breakeven(symbol, position, entry_price)
+                
+                # Đánh dấu TP1 đã hit
+                position['tp1_hit'] = True
+                position['tp1_hit_time'] = datetime.now().isoformat()
+                position['tp1_hit_price'] = current_price
+                
+                # Gửi thông báo Discord
+                self._send_partial_tp_alert(symbol, position, "TP1", 0.5, current_price)
+            
+            # Kiểm tra TP2
+            elif tp1_hit and not tp2_hit and profit_ratio >= tp2_ratio:
+                print(f"🎯 [Partial TP] {symbol}: Chạm TP2 ({tp2_ratio}R) - Chốt lời 50% còn lại")
+                
+                # Chốt lời 50% còn lại
+                self._execute_partial_take_profit(symbol, position, current_price, 0.5, "TP2")
+                
+                # Đánh dấu TP2 đã hit
+                position['tp2_hit'] = True
+                position['tp2_hit_time'] = datetime.now().isoformat()
+                position['tp2_hit_price'] = current_price
+                
+                # Gửi thông báo Discord
+                self._send_partial_tp_alert(symbol, position, "TP2", 0.5, current_price)
+                
+                # Đóng hoàn toàn vị thế
+                self._close_position(symbol, "TP2 Complete", current_price)
+                
+        except Exception as e:
+            print(f"⚠️ [Partial TP] Lỗi kiểm tra chốt lời từng phần cho {symbol}: {e}")
+    
+    def _execute_partial_take_profit(self, symbol, position, current_price, percentage, tp_level):
+        """Thực hiện chốt lời từng phần"""
+        try:
+            # Tính lợi nhuận từ phần chốt lời
+            entry_price = position.get('entry_price', 0)
+            direction = position.get('direction', 'BUY')
+            position_size = position.get('size', 1.0)
+            
+            if direction.upper() == 'BUY':
+                profit = (current_price - entry_price) * position_size * percentage
+            else:
+                profit = (entry_price - current_price) * position_size * percentage
+            
+            # Cập nhật thông tin vị thế
+            position['size'] = position_size * (1 - percentage)  # Giảm kích thước vị thế
+            position['realized_profit'] = position.get('realized_profit', 0) + profit
+            position['partial_tp_count'] = position.get('partial_tp_count', 0) + 1
+            
+            print(f"✅ [Partial TP] {symbol}: Chốt lời {percentage:.0%} - Lợi nhuận: {profit:.2f}")
+            
+        except Exception as e:
+            print(f"⚠️ [Partial TP] Lỗi thực hiện chốt lời từng phần cho {symbol}: {e}")
+    
+    def _move_stop_loss_to_breakeven(self, symbol, position, entry_price):
+        """Dời Stop Loss về điểm hòa vốn sau khi chốt lời TP1"""
+        try:
+            direction = position.get('direction', 'BUY')
+            
+            # Dời Stop Loss về điểm hòa vốn
+            position['stop_loss'] = entry_price
+            position['stop_loss_moved_to_breakeven'] = True
+            position['breakeven_time'] = datetime.now().isoformat()
+            
+            print(f"🔄 [Breakeven] {symbol}: Dời Stop Loss về điểm hòa vốn ({entry_price:.5f})")
+            
+        except Exception as e:
+            print(f"⚠️ [Breakeven] Lỗi dời Stop Loss về điểm hòa vốn cho {symbol}: {e}")
+    
+    def _check_regular_stop_loss(self, symbol, position, current_price):
+        """Kiểm tra stop loss thông thường"""
+        try:
+            stop_loss = position.get('stop_loss', 0)
+            direction = position.get('direction', 'BUY')
+            
+            if stop_loss <= 0:
+                return
+            
+            # Kiểm tra điều kiện stop loss
+            if direction.upper() == 'BUY' and current_price <= stop_loss:
+                print(f"🛑 [Stop Loss] {symbol}: Chạm Stop Loss - Đóng vị thế")
+                self._close_position(symbol, "Stop Loss", current_price)
+            elif direction.upper() == 'SELL' and current_price >= stop_loss:
+                print(f"🛑 [Stop Loss] {symbol}: Chạm Stop Loss - Đóng vị thế")
+                self._close_position(symbol, "Stop Loss", current_price)
+                
+        except Exception as e:
+            print(f"⚠️ [Stop Loss] Lỗi kiểm tra stop loss cho {symbol}: {e}")
+    
+    def _close_position(self, symbol, reason, current_price):
+        """Đóng vị thế hoàn toàn"""
+        try:
+            if symbol not in self.open_positions:
+                return
+            
+            position = self.open_positions[symbol]
+            entry_price = position.get('entry_price', 0)
+            direction = position.get('direction', 'BUY')
+            position_size = position.get('size', 1.0)
+            
+            # Tính lợi nhuận cuối cùng
+            if direction.upper() == 'BUY':
+                final_profit = (current_price - entry_price) * position_size
+            else:
+                final_profit = (entry_price - current_price) * position_size
+            
+            # Cập nhật thông tin vị thế
+            position['status'] = 'CLOSED'
+            position['closed_at'] = datetime.now().isoformat()
+            position['close_price'] = current_price
+            position['close_reason'] = reason
+            position['final_profit'] = final_profit
+            position['total_profit'] = position.get('realized_profit', 0) + final_profit
+            
+            print(f"✅ [Close Position] {symbol}: Đóng vị thế - Lý do: {reason} - Lợi nhuận: {final_profit:.2f}")
+            
+            # Gửi thông báo Discord
+            self._send_position_closed_alert(symbol, position, reason, current_price, final_profit)
+            
+            # Xóa khỏi danh sách vị thế mở
+            del self.open_positions[symbol]
+            
+        except Exception as e:
+            print(f"⚠️ [Close Position] Lỗi đóng vị thế {symbol}: {e}")
+    
+    def _send_time_stop_alert(self, symbol, position, candles_h4, profit_pct):
+        """Gửi thông báo Discord về Time Stop"""
+        try:
+            message = f"⏰ **Time Stop Alert**\n\n"
+            message += f"**Symbol:** {symbol}\n"
+            message += f"**Lý do:** Vị thế mở quá lâu ({candles_h4:.1f} cây nến H4)\n"
+            message += f"**Lợi nhuận:** {profit_pct:.2%}\n"
+            message += f"**Thời gian:** {datetime.now().strftime('%H:%M:%S')}"
+            
+            # Gửi qua Discord (nếu có)
+            if hasattr(self, 'discord_manager'):
+                self.discord_manager.send_message(message)
+                
+        except Exception as e:
+            print(f"⚠️ [Discord] Lỗi gửi Time Stop alert: {e}")
+    
+    def _send_partial_tp_alert(self, symbol, position, tp_level, percentage, price):
+        """Gửi thông báo Discord về Partial Take Profit"""
+        try:
+            message = f"🎯 **Partial Take Profit Alert**\n\n"
+            message += f"**Symbol:** {symbol}\n"
+            message += f"**Mức:** {tp_level}\n"
+            message += f"**Tỷ lệ:** {percentage:.0%}\n"
+            message += f"**Giá:** {price:.5f}\n"
+            message += f"**Thời gian:** {datetime.now().strftime('%H:%M:%S')}"
+            
+            # Gửi qua Discord (nếu có)
+            if hasattr(self, 'discord_manager'):
+                self.discord_manager.send_message(message)
+                
+        except Exception as e:
+            print(f"⚠️ [Discord] Lỗi gửi Partial TP alert: {e}")
+    
+    def _send_position_closed_alert(self, symbol, position, reason, close_price, profit):
+        """Gửi thông báo Discord về việc đóng vị thế"""
+        try:
+            message = f"🔒 **Position Closed Alert**\n\n"
+            message += f"**Symbol:** {symbol}\n"
+            message += f"**Lý do:** {reason}\n"
+            message += f"**Giá đóng:** {close_price:.5f}\n"
+            message += f"**Lợi nhuận:** {profit:.2f}\n"
+            message += f"**Thời gian:** {datetime.now().strftime('%H:%M:%S')}"
+            
+            # Gửi qua Discord (nếu có)
+            if hasattr(self, 'discord_manager'):
+                self.discord_manager.send_message(message)
+                
+        except Exception as e:
+            print(f"⚠️ [Discord] Lỗi gửi Position Closed alert: {e}")
 
     # EnhancedTradingBofrom modelethods
 
@@ -20695,7 +21797,15 @@ class EnhancedTradingBot:
             # Generate Wyckoff narrative
             wyckoff_narrative = self._generate_wyckoff_narrative(latest)
         
-        # Tạo prompt mới với bối cảnh kinh tế trong ngày
+        # === CẢI TIẾN: BỔ SUNG THÔNG TIN CHỈ BÁO KỸ THUẬT VÀ TRẠNG THÁI THỊ TRƯỜNG ===
+        
+        # Lấy thông tin chỉ báo kỹ thuật chính
+        technical_indicators = self._get_technical_indicators_summary(symbol)
+        
+        # Lấy trạng thái thị trường hiện tại
+        market_state = self._get_market_state_summary(symbol)
+        
+        # Tạo prompt mới với bối cảnh kinh tế trong ngày và thông tin kỹ thuật
         prompt = f"""
 Bạn là Giám đốc Quản lý Rủi ro (Chief Risk Officer) của một quỹ phòng hộ, có nhiệm vụ đánh giá các tín hiệu giao dịch từ hệ thống AI cấp dưới.
 
@@ -20703,6 +21813,16 @@ Bạn là Giám đốc Quản lý Rủi ro (Chief Risk Officer) của một qu�
 - Lệnh đề xuất: {signal} {symbol}
 - Các luận điểm kỹ thuật chính: {reasoning_data.get("Main Technical Factors", "N/A")}
 - Phân tích xu hướng đa khung: {reasoning_data.get("Trend Analysis", "N/A")}
+
+**CHỈ BÁO KỸ THUẬT HIỆN TẠI:**
+---
+{technical_indicators}
+---
+
+**TRẠNG THÁI THỊ TRƯỜNG:**
+---
+{market_state}
+---
 
 **BỐI CẢNH THỊ TRƯỜNG HÔM NAY:**
 
@@ -20721,12 +21841,14 @@ Dựa trên **TOÀN BỘ** thông tin trên, hãy đưa ra quyết định cuố
 - Tín hiệu kỹ thuật có bị mâu thuẫn với tác động dự kiến của các sự kiện kinh tế sắp tới không? (Ví dụ: Tín hiệu BUY USD ngay trước tin CPI dự kiến xấu).
 - Tin tức gần đây có ủng hộ hay phản đối tín hiệu kỹ thuật không?
 - Mức độ rủi ro khi vào lệnh tại thời điểm này là cao hay thấp?
+- Chỉ báo kỹ thuật hiện tại có ủng hộ tín hiệu giao dịch không?
+- Trạng thái thị trường (trending/ranging) có phù hợp với chiến lược giao dịch không?
 
 Chỉ trả về duy nhất một khối JSON với định dạng sau:
 {{
   "sentiment_score": <số float từ -1.0 (tiêu cực) đến 1.0 (tích cực) dựa trên tin tức chung>,
   "decision": "APPROVE" hoặc "REJECT",
-  "justification": "<Lý do ngắn gọn, súc tích cho quyết định của bạn, có đề cập đến sự kiện kinh tế nếu nó ảnh hưởng>"
+  "justification": "<Lý do ngắn gọn, súc tích cho quyết định của bạn, có đề cập đến sự kiện kinh tế và chỉ báo kỹ thuật nếu chúng ảnh hưởng>"
 }}
 """
 
