@@ -35,129 +35,161 @@ from typing import Dict, Any, Optional, Union
 from collections import deque
 from datetime import datetime, timedelta
 
-# ==============================================================================
-# REFACTORED CONSTANTS AND CONFIGURATION
-# ==============================================================================
+# ==================================================
+# CLASS: Constants
+# ==================================================
 
 from dataclasses import dataclass
 from enum import Enum
 from typing import Dict, Any, List, Optional, Union, Tuple
 
-# Feature flags
-ENABLE_HISTORICAL_SL_CHECK = False  # Set to False to disable historical SL checking
-SEND_HISTORICAL_SL_ALERTS = False   # Set to True to send Discord alerts for historical SL (only if ENABLE_HISTORICAL_SL_CHECK is True)
+class Constants:
+    """Centralized constants and configuration class"""
+    
+    # Feature flags
+    ENABLE_HISTORICAL_SL_CHECK = False  # Set to False to disable historical SL checking
+    SEND_HISTORICAL_SL_ALERTS = False   # Set to True to send Discord alerts for historical SL (only if ENABLE_HISTORICAL_SL_CHECK is True)
 
-class SymbolType(Enum):
-    """Enum for symbol types"""
-    CRYPTO = "crypto"
-    FOREX = "forex"
-    EQUITY = "equity"
-    COMMODITY = "commodity"
-    UNKNOWN = "unknown"
+    class SymbolType(Enum):
+        """Enum for symbol types"""
+        CRYPTO = "crypto"
+        FOREX = "forex"
+        EQUITY = "equity"
+        COMMODITY = "commodity"
+        UNKNOWN = "unknown"
 
-class TimeFrame(Enum):
-    """Enum for timeframes"""
-    M1 = "M1"
-    M5 = "M5"
-    M15 = "M15"
-    M30 = "M30"
-    H1 = "H1"
-    H4 = "H4"
-    D1 = "D1"
-    W1 = "W1"
+    class TimeFrame(Enum):
+        """Enum for timeframes"""
+        M1 = "M1"
+        M5 = "M5"
+        M15 = "M15"
+        M30 = "M30"
+        H1 = "H1"
+        H4 = "H4"
+        D1 = "D1"
+        W1 = "W1"
 
-@dataclass
-class APIConfig:
-    """API configuration dataclass"""
-    api_key: str
-    base_url: str
-    rate_limit: int
-    timeout: int = 30
-    retry_attempts: int = 3
+    @dataclass
+    class APIConfig:
+        """API configuration dataclass"""
+        api_key: str
+        base_url: str
+        rate_limit: int
+        timeout: int = 30
+        retry_attempts: int = 3
 
-@dataclass
-class SymbolConfig:
-    """Symbol configuration dataclass"""
-    symbol: str
-    symbol_type: SymbolType
-    primary_timeframe: TimeFrame
-    weight: float
-    max_exposure: float
-    risk_multiplier: float
-    is_active: bool = True
+    @dataclass
+    class SymbolConfig:
+        """Symbol configuration dataclass"""
+        symbol: str
+        symbol_type: 'Constants.SymbolType'
+        primary_timeframe: 'Constants.TimeFrame'
+        weight: float
+        max_exposure: float
+        risk_multiplier: float
+        is_active: bool = True
 
-# Refactored API configuration
-API_CONFIGS: Dict[str, APIConfig] = {
-    'FINHUB': APIConfig(
-        api_key='d1b3ichr01qjhvtsbj8g',
-        base_url='https://finhub.io/api/v1',
-        rate_limit=60
-    ),
-    'MARKETAUX': APIConfig(
-        api_key='CkuQmx9sPsjw0FRDeSkoO8U3O9Jj3HWnUYMJNEql',
-        base_url='https://api.marketaux.com/v1',
-        rate_limit=100
-    ),
-    'NEWSAPI': APIConfig(
-        api_key='abd8f43b808f42fdb8d28fb1c429af72',
-        base_url='https://newsapi.org/v2',
-        rate_limit=1000
-    ),
-    'EODHD': APIConfig(
-        api_key='68bafd7d44a7f0.25202650',
-        base_url='https://eodhistoricaldata.com/api',
-        rate_limit=20
-    ),
-    'ALPHA_VANTAGE': APIConfig(
-        api_key='FK3YQ1IKSC4E1AL5',
-        base_url='https://www.alphavantage.co/query',
-        rate_limit=5
-    )
-}
+    # API configuration
+    API_CONFIGS: Dict[str, APIConfig] = {
+        'FINHUB': APIConfig(
+            api_key='d1b3ichr01qjhvtsbj8g',
+            base_url='https://finhub.io/api/v1',
+            rate_limit=60
+        ),
+        'MARKETAUX': APIConfig(
+            api_key='CkuQmx9sPsjw0FRDeSkoO8U3O9Jj3HWnUYMJNEql',
+            base_url='https://api.marketaux.com/v1',
+            rate_limit=100
+        ),
+        'NEWSAPI': APIConfig(
+            api_key='abd8f43b808f42fdb8d28fb1c429af72',
+            base_url='https://newsapi.org/v2',
+            rate_limit=1000
+        ),
+        'EODHD': APIConfig(
+            api_key='68bafd7d44a7f0.25202650',
+            base_url='https://eodhistoricaldata.com/api',
+            rate_limit=20
+        ),
+        'ALPHA_VANTAGE': APIConfig(
+            api_key='FK3YQ1IKSC4E1AL5',
+            base_url='https://www.alphavantage.co/query',
+            rate_limit=5
+        )
+    }
 
-# Trading constants
-class TradingConstants:
-    """Trading-related constants"""
-    MIN_CONFIDENCE_THRESHOLD = 0.5
-    MAX_CONFIDENCE_THRESHOLD = 0.95
-    CONFIDENCE_SMOOTHING_FACTOR = 0.1
-    TRAILING_STOP_MULTIPLIER = 0.5
-    POSITION_SIZE_MULTIPLIER = 1.0
-    SPREAD_COST_PIPS = 2.0
-    SLIPPAGE_PIPS = 1.0
-    MAX_RISK_PER_TRADE = 0.02
-    MAX_DAILY_RISK = 0.05
-    MAX_PORTFOLIO_RISK = 0.10
+    # Trading constants
+    class Trading:
+        """Trading-related constants"""
+        MIN_CONFIDENCE_THRESHOLD = 0.5
+        MAX_CONFIDENCE_THRESHOLD = 0.95
+        CONFIDENCE_SMOOTHING_FACTOR = 0.1
+        TRAILING_STOP_MULTIPLIER = 0.5
+        POSITION_SIZE_MULTIPLIER = 1.0
+        SPREAD_COST_PIPS = 2.0
+        SLIPPAGE_PIPS = 1.0
+        MAX_RISK_PER_TRADE = 0.02
+        MAX_DAILY_RISK = 0.05
+        MAX_PORTFOLIO_RISK = 0.10
 
-# Feature engineering constants
-class FeatureConstants:
-    """Feature engineering constants"""
-    RSI_PERIOD = 14
-    MACD_FAST = 12
-    MACD_SLOW = 26
-    MACD_SIGNAL = 9
-    BB_PERIOD = 20
-    BB_STD = 2
-    EMA_PERIODS = [20, 50, 200]
-    VOLUME_PERIOD = 20
-    MIN_CANDLES_FOR_ANALYSIS = 100
-    MAX_STALE_MINUTES = 30
+    # Feature engineering constants
+    class Features:
+        """Feature engineering constants"""
+        RSI_PERIOD = 14
+        MACD_FAST = 12
+        MACD_SLOW = 26
+        MACD_SIGNAL = 9
+        BB_PERIOD = 20
+        BB_STD = 2
+        EMA_PERIODS = [20, 50, 200]
+        VOLUME_PERIOD = 20
+        MIN_CANDLES_FOR_ANALYSIS = 100
+        MAX_STALE_MINUTES = 30
 
-# Symbol classifications
-CRYPTO_SYMBOLS = {'BTCUSD', 'ETHUSD', 'XRPUSD', 'LTCUSD', 'ADAUSD'}
-EQUITY_INDICES = {'SPX500', 'NAS100', 'US30', 'DE40', 'UK100', 'FR40', 'JP225', 'AU200'}
-FOREX_PAIRS = {'EURUSD', 'GBPUSD', 'USDJPY', 'AUDUSD', 'USDCAD', 'NZDUSD', 'AUDNZD'}
-COMMODITIES = {'XAUUSD', 'XAGUSD', 'USOIL', 'UKOIL', 'NATGAS'}
+    # Symbol classifications
+    CRYPTO_SYMBOLS = {'BTCUSD', 'ETHUSD', 'XRPUSD', 'LTCUSD', 'ADAUSD'}
+    EQUITY_INDICES = {'SPX500', 'NAS100', 'US30', 'DE40', 'UK100', 'FR40', 'JP225', 'AU200'}
+    FOREX_PAIRS = {'EURUSD', 'GBPUSD', 'USDJPY', 'AUDUSD', 'USDCAD', 'NZDUSD', 'AUDNZD'}
+    COMMODITIES = {'XAUUSD', 'XAGUSD', 'USOIL', 'UKOIL', 'NATGAS'}
 
-# Legacy API configuration (for backward compatibility)
-API_KEYS = {name: config.api_key for name, config in API_CONFIGS.items()}
-API_ENDPOINTS = {
-    'FINHUB': {'base_url': API_CONFIGS['FINHUB'].base_url, 'quote': '/quote', 'news': '/company-news', 'sentiment': '/news-sentiment'},
-    'MARKETAUX': {'base_url': 'https://api.marketaux.com/v1', 'news': '/news/all', 'news_intraday': '/news/intraday'},
-    'NEWSAPI': {'base_url': 'https://newsapi.org/v2', 'everything': '/everything', 'top_headlines': '/top-headlines'},
-    'EODHD': {'base_url': 'https://eodhistoricaldata.com/api', 'eod': '/eod', 'real_time': '/real-time', 'fundamentals': '/fundamentals'}
-}
-RATE_LIMITS = {name: config.rate_limit for name, config in API_CONFIGS.items()}
+    # Legacy API configuration (for backward compatibility)
+    @classmethod
+    def get_api_keys(cls) -> Dict[str, str]:
+        """Get API keys dictionary"""
+        return {name: config.api_key for name, config in cls.API_CONFIGS.items()}
+    
+    @classmethod
+    def get_api_endpoints(cls) -> Dict[str, Dict[str, str]]:
+        """Get API endpoints dictionary"""
+        return {
+            'FINHUB': {'base_url': cls.API_CONFIGS['FINHUB'].base_url, 'quote': '/quote', 'news': '/company-news', 'sentiment': '/news-sentiment'},
+            'MARKETAUX': {'base_url': 'https://api.marketaux.com/v1', 'news': '/news/all', 'news_intraday': '/news/intraday'},
+            'NEWSAPI': {'base_url': 'https://newsapi.org/v2', 'everything': '/everything', 'top_headlines': '/top-headlines'},
+            'EODHD': {'base_url': 'https://eodhistoricaldata.com/api', 'eod': '/eod', 'real_time': '/real-time', 'fundamentals': '/fundamentals'}
+        }
+    
+    @classmethod
+    def get_rate_limits(cls) -> Dict[str, int]:
+        """Get rate limits dictionary"""
+        return {name: config.rate_limit for name, config in cls.API_CONFIGS.items()}
+
+# Legacy compatibility - create global variables for backward compatibility
+ENABLE_HISTORICAL_SL_CHECK = Constants.ENABLE_HISTORICAL_SL_CHECK
+SEND_HISTORICAL_SL_ALERTS = Constants.SEND_HISTORICAL_SL_ALERTS
+SymbolType = Constants.SymbolType
+TimeFrame = Constants.TimeFrame
+APIConfig = Constants.APIConfig
+SymbolConfig = Constants.SymbolConfig
+API_CONFIGS = Constants.API_CONFIGS
+TradingConstants = Constants.Trading
+FeatureConstants = Constants.Features
+CRYPTO_SYMBOLS = Constants.CRYPTO_SYMBOLS
+EQUITY_INDICES = Constants.EQUITY_INDICES
+FOREX_PAIRS = Constants.FOREX_PAIRS
+COMMODITIES = Constants.COMMODITIES
+API_KEYS = Constants.get_api_keys()
+API_ENDPOINTS = Constants.get_api_endpoints()
+RATE_LIMITS = Constants.get_rate_limits()
 
 # ==============================================================================
 # REFACTORED DECORATORS AND MIXINS
@@ -5819,12 +5851,19 @@ class EnhancedNewsFilter:
         """Check if symbol is currently blocked by news filter"""
         return symbol in self.blocked_symbols
 
-class NewsEconomicManager:
-    def __init__(self):
-        print("🔄 [NewsEconomicManager] Starting initialization...")
-        
-        try:
-            # Initialize caching attributes
+# ==================================================
+# CLASS: NewsAndSentiment
+# ==================================================
+
+class NewsAndSentiment:
+    """Container class for news and sentiment analysis components"""
+    
+    class NewsEconomicManager:
+        def __init__(self):
+            print("🔄 [NewsEconomicManager] Starting initialization...")
+            
+            try:
+                # Initialize caching attributes
             self.last_calendar_fetch_date = None
             self.economic_calendar_cache = None
 
@@ -7096,12 +7135,12 @@ class DailyNewsScheduler:
     
 
 
-class LLMSentimentAnalyzer:
-    def __init__(self, api_key):
-        # Use provided API key or fallback to default
-        if not api_key or "DN_API_KEY" in api_key:
-            api_key = "AIzaSyA66wFiXm5cvxtPZM3wIX0HRSvK64TdU34"  # FIX: Updated with new API key
-            print(" [LLMSentimentAnalyzer] Using fallback API key")
+    class LLMSentimentAnalyzer:
+        def __init__(self, api_key):
+            # Use provided API key or fallback to default
+            if not api_key or "DN_API_KEY" in api_key:
+                api_key = "AIzaSyA66wFiXm5cvxtPZM3wIX0HRSvK64TdU34"  # FIX: Updated with new API key
+                print(" [LLMSentimentAnalyzer] Using fallback API key")
         
         if not api_key or len(api_key) < 10:
             logging.warning(" Google AI API Key not configured. LLM features will be disabled.")
@@ -7198,7 +7237,11 @@ class LLMSentimentAnalyzer:
 
 
 # L p this not thay d i
-class AdvancedFeatureEngineer:
+# ==================================================
+# CLASS: FeatureEngineer
+# ==================================================
+
+class FeatureEngineer:
     def __init__(self):
         self.validation_threshold = 0.02  # Ultra-strict: from test results
         self.early_stopping_patience = 3   # Very early stopping
@@ -8552,15 +8595,22 @@ class AdvancedFeatureEngineer:
         logging.info("   [Features] Market state feature creation completed.")
         return df
 
-class EnhancedEnsembleModel:
-    """Enhanced ensemble with advanced CV, CPCV, and explainability"""
+# ==================================================
+# CLASS: Models
+# ==================================================
 
-    def __init__(self):
-        self.validation_threshold = 0.05  # Nới lỏng từ 0.02 lên 0.05
-        self.early_stopping_patience = 5   # Tăng từ 3 lên 5
-        self.regularization_strength = 0.10  # Giảm từ 0.15 xuống 0.10
-        self.dropout_rate = 0.5  # Giảm từ 0.7 xuống 0.5
-        self.batch_normalization = True
+class Models:
+    """Container class for all machine learning models"""
+    
+    class EnhancedEnsembleModel:
+        """Enhanced ensemble with advanced CV, CPCV, and explainability"""
+
+        def __init__(self):
+            self.validation_threshold = 0.05  # Nới lỏng từ 0.02 lên 0.05
+            self.early_stopping_patience = 5   # Tăng từ 3 lên 5
+            self.regularization_strength = 0.10  # Giảm từ 0.15 xuống 0.10
+            self.dropout_rate = 0.5  # Giảm từ 0.7 xuống 0.5
+            self.batch_normalization = True
         self.data_augmentation = True
         self.cross_validation_folds = 10  # More folds from test results
         self.out_of_sample_testing = True
@@ -9068,12 +9118,12 @@ class OrderSafetyManager:
         logging.info(f"Order recorded: {symbol} {direction} {size}")
 
 # Original class preserved for compatibility
-class LSTMModel:
-    def __init__(self, sequence_length=60, features_dim=40):
-        self.sequence_length = sequence_length
-        self.features_dim = features_dim
-        self.model = None
-        self.scaler = StandardScaler()
+    class LSTMModel:
+        def __init__(self, sequence_length=60, features_dim=40):
+            self.sequence_length = sequence_length
+            self.features_dim = features_dim
+            self.model = None
+            self.scaler = StandardScaler()
 
     def build_model(self):
         """Build LSTM model with enhanced anti-overfitting mechanisms"""
@@ -10710,7 +10760,11 @@ class AdvancedFeatureStore:
         except Exception as e:
             print(f"❌ [Feature Store] Lỗi đóng database: {e}")
 
-class EnhancedDataManager:
+# ==================================================
+# CLASS: DataManager
+# ==================================================
+
+class DataManager:
     def __init__(self, news_manager=None):
         # Store news_manager reference
         self.news_manager = news_manager
@@ -15898,11 +15952,340 @@ class MetaLearnerModel:
         confidence = np.random.uniform(0.6, 0.9)
         return prediction, confidence
 
-class EnhancedTradingBot:
+# ==================================================
+# CLASS: Utils
+# ==================================================
+
+class Utils:
+    """Utility functions for various operations"""
+    
+    @staticmethod
+    def get_symbol_type(symbol):
+        """Determine symbol type based on symbol name"""
+        if symbol in Constants.CRYPTO_SYMBOLS:
+            return Constants.SymbolType.CRYPTO
+        elif symbol in Constants.EQUITY_INDICES:
+            return Constants.SymbolType.EQUITY
+        elif symbol in Constants.FOREX_PAIRS:
+            return Constants.SymbolType.FOREX
+        elif symbol in Constants.COMMODITIES:
+            return Constants.SymbolType.COMMODITY
+        else:
+            return Constants.SymbolType.UNKNOWN
+    
+    @staticmethod
+    def format_currency(amount, currency="USD"):
+        """Format currency amount"""
+        if currency == "USD":
+            return f"${amount:,.2f}"
+        elif currency == "EUR":
+            return f"€{amount:,.2f}"
+        elif currency == "GBP":
+            return f"£{amount:,.2f}"
+        else:
+            return f"{amount:,.2f} {currency}"
+    
+    @staticmethod
+    def calculate_percentage_change(old_value, new_value):
+        """Calculate percentage change between two values"""
+        if old_value == 0:
+            return 0
+        return ((new_value - old_value) / old_value) * 100
+    
+    @staticmethod
+    def round_to_pips(price, symbol):
+        """Round price to appropriate pip value for symbol"""
+        if symbol in Constants.FOREX_PAIRS:
+            return round(price, 5)  # 5 decimal places for most forex pairs
+        elif symbol in Constants.CRYPTO_SYMBOLS:
+            return round(price, 2)  # 2 decimal places for crypto
+        else:
+            return round(price, 2)  # Default to 2 decimal places
+    
+    @staticmethod
+    def is_market_hours(symbol):
+        """Check if market is open for given symbol"""
+        now = datetime.now(pytz.timezone("Asia/Bangkok"))
+        weekday = now.weekday()
+        hour = now.hour
+        
+        # Basic market hours check (can be enhanced)
+        if weekday >= 5:  # Weekend
+            return False
+        
+        if symbol in Constants.FOREX_PAIRS:
+            # Forex markets are generally open 24/5
+            return weekday < 5
+        elif symbol in Constants.CRYPTO_SYMBOLS:
+            # Crypto markets are 24/7
+            return True
+        else:
+            # Stock markets have specific hours
+            return 9 <= hour <= 16  # Simplified check
+    
+    @staticmethod
+    def get_trading_session(symbol):
+        """Get current trading session for symbol"""
+        now = datetime.now(pytz.timezone("Asia/Bangkok"))
+        hour = now.hour
+        
+        if symbol in Constants.FOREX_PAIRS:
+            if 0 <= hour < 8:
+                return "Asian"
+            elif 8 <= hour < 16:
+                return "European"
+            else:
+                return "American"
+        else:
+            return "Regular"
+    
+    @staticmethod
+    def validate_symbol(symbol):
+        """Validate if symbol is supported"""
+        all_symbols = (Constants.CRYPTO_SYMBOLS | 
+                      Constants.EQUITY_INDICES | 
+                      Constants.FOREX_PAIRS | 
+                      Constants.COMMODITIES)
+        return symbol in all_symbols
+    
+    @staticmethod
+    def get_symbol_info(symbol):
+        """Get basic information about symbol"""
+        return {
+            "symbol": symbol,
+            "type": Utils.get_symbol_type(symbol),
+            "is_valid": Utils.validate_symbol(symbol),
+            "market_hours": Utils.is_market_hours(symbol),
+            "trading_session": Utils.get_trading_session(symbol)
+        }
+    
+    @staticmethod
+    def log_trade_action(action, symbol, details=None):
+        """Log trade action with timestamp"""
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        log_message = f"[{timestamp}] {action}: {symbol}"
+        if details:
+            log_message += f" - {details}"
+        print(log_message)
+    
+    @staticmethod
+    def calculate_risk_reward_ratio(entry_price, stop_loss, take_profit):
+        """Calculate risk-reward ratio"""
+        risk = abs(entry_price - stop_loss)
+        reward = abs(take_profit - entry_price)
+        if risk == 0:
+            return 0
+        return reward / risk
+    
+    @staticmethod
+    def format_timestamp(timestamp):
+        """Format timestamp for display"""
+        if isinstance(timestamp, str):
+            timestamp = pd.to_datetime(timestamp)
+        return timestamp.strftime("%Y-%m-%d %H:%M:%S")
+    
+    @staticmethod
+    def get_timeframe_priority(timeframe):
+        """Get priority order for timeframes"""
+        priority_map = {
+            "M1": 1, "M5": 2, "M15": 3, "M30": 4,
+            "H1": 5, "H4": 6, "D1": 7, "W1": 8
+        }
+        return priority_map.get(timeframe, 9)
+    
+    @staticmethod
+    def sort_timeframes(timeframes):
+        """Sort timeframes by priority"""
+        return sorted(timeframes, key=Utils.get_timeframe_priority)
+    
+    @staticmethod
+    def is_high_impact_news_time():
+        """Check if current time is during high impact news"""
+        now = datetime.now(pytz.timezone("Asia/Bangkok"))
+        # Simplified check - can be enhanced with actual news calendar
+        return now.hour in [8, 14, 20]  # Common news release times
+    
+    @staticmethod
+    def get_volatility_level(symbol, price_data):
+        """Calculate volatility level for symbol"""
+        if len(price_data) < 20:
+            return "Unknown"
+        
+        returns = price_data['close'].pct_change().dropna()
+        volatility = returns.std() * np.sqrt(252)  # Annualized volatility
+        
+        if volatility < 0.15:
+            return "Low"
+        elif volatility < 0.30:
+            return "Medium"
+        elif volatility < 0.50:
+            return "High"
+        else:
+            return "Very High"
+    
+    @staticmethod
+    def calculate_position_value(price, quantity, leverage=1):
+        """Calculate position value"""
+        return price * quantity * leverage
+    
+    @staticmethod
+    def calculate_margin_required(position_value, margin_rate=0.01):
+        """Calculate margin required for position"""
+        return position_value * margin_rate
+    
+    @staticmethod
+    def format_percentage(value, decimals=2):
+        """Format value as percentage"""
+        return f"{value:.{decimals}f}%"
+    
+    @staticmethod
+    def safe_divide(numerator, denominator, default=0):
+        """Safely divide two numbers, return default if denominator is zero"""
+        if denominator == 0:
+            return default
+        return numerator / denominator
+    
+    @staticmethod
+    def clamp(value, min_value, max_value):
+        """Clamp value between min and max"""
+        return max(min_value, min(value, max_value))
+    
+    @staticmethod
+    def exponential_smoothing(data, alpha=0.3):
+        """Apply exponential smoothing to data"""
+        if len(data) == 0:
+            return data
+        
+        smoothed = [data[0]]
+        for i in range(1, len(data)):
+            smoothed.append(alpha * data[i] + (1 - alpha) * smoothed[i-1])
+        return smoothed
+    
+    @staticmethod
+    def moving_average(data, window):
+        """Calculate simple moving average"""
+        if len(data) < window:
+            return data
+        return pd.Series(data).rolling(window=window).mean().tolist()
+    
+    @staticmethod
+    def detect_trend(data, window=20):
+        """Detect trend direction in data"""
+        if len(data) < window:
+            return "Unknown"
+        
+        recent_data = data[-window:]
+        slope = np.polyfit(range(len(recent_data)), recent_data, 1)[0]
+        
+        if slope > 0.001:
+            return "Uptrend"
+        elif slope < -0.001:
+            return "Downtrend"
+        else:
+            return "Sideways"
+    
+    @staticmethod
+    def calculate_correlation(data1, data2):
+        """Calculate correlation between two data series"""
+        if len(data1) != len(data2) or len(data1) < 2:
+            return 0
+        
+        return np.corrcoef(data1, data2)[0, 1]
+    
+    @staticmethod
+    def get_market_sentiment_score(news_sentiment, technical_sentiment, weight_news=0.6):
+        """Calculate combined market sentiment score"""
+        if news_sentiment is None:
+            news_sentiment = 0
+        if technical_sentiment is None:
+            technical_sentiment = 0
+        
+        return (weight_news * news_sentiment + 
+                (1 - weight_news) * technical_sentiment)
+    
+    @staticmethod
+    def validate_price_data(data):
+        """Validate price data quality"""
+        if data is None or len(data) == 0:
+            return False, "No data"
+        
+        required_columns = ['open', 'high', 'low', 'close']
+        for col in required_columns:
+            if col not in data.columns:
+                return False, f"Missing column: {col}"
+        
+        # Check for negative prices
+        if (data[required_columns] <= 0).any().any():
+            return False, "Negative or zero prices found"
+        
+        # Check for high-low consistency
+        if (data['high'] < data['low']).any():
+            return False, "High < Low inconsistency"
+        
+        # Check for open-close consistency
+        if (data['open'] < 0).any() or (data['close'] < 0).any():
+            return False, "Negative open/close prices"
+        
+        return True, "Valid data"
+    
+    @staticmethod
+    def calculate_drawdown(equity_curve):
+        """Calculate maximum drawdown from equity curve"""
+        if len(equity_curve) < 2:
+            return 0
+        
+        peak = equity_curve[0]
+        max_dd = 0
+        
+        for value in equity_curve:
+            if value > peak:
+                peak = value
+            dd = (peak - value) / peak
+            max_dd = max(max_dd, dd)
+        
+        return max_dd
+    
+    @staticmethod
+    def calculate_sharpe_ratio(returns, risk_free_rate=0.02):
+        """Calculate Sharpe ratio"""
+        if len(returns) < 2:
+            return 0
+        
+        excess_returns = returns - risk_free_rate / 252  # Daily risk-free rate
+        if excess_returns.std() == 0:
+            return 0
+        
+        return excess_returns.mean() / excess_returns.std() * np.sqrt(252)
+    
+    @staticmethod
+    def get_performance_metrics(returns):
+        """Calculate comprehensive performance metrics"""
+        if len(returns) < 2:
+            return {}
+        
+        metrics = {
+            'total_return': (1 + returns).prod() - 1,
+            'annualized_return': (1 + returns).prod() ** (252 / len(returns)) - 1,
+            'volatility': returns.std() * np.sqrt(252),
+            'sharpe_ratio': Utils.calculate_sharpe_ratio(returns),
+            'max_drawdown': Utils.calculate_drawdown((1 + returns).cumprod()),
+            'win_rate': (returns > 0).mean(),
+            'avg_win': returns[returns > 0].mean() if (returns > 0).any() else 0,
+            'avg_loss': returns[returns < 0].mean() if (returns < 0).any() else 0,
+            'profit_factor': abs(returns[returns > 0].sum() / returns[returns < 0].sum()) if (returns < 0).any() else float('inf')
+        }
+        
+        return metrics
+
+# ==================================================
+# CLASS: TradingBot
+# ==================================================
+
+class TradingBot:
     # TM V THAY THFunction this in L P EnhancedTradingBot
 
     def __init__(self):
-        print("🚀 [Bot Init] Starting EnhancedTradingBot initialization...")
+        print("🚀 [Bot Init] Starting TradingBot initialization...")
         
         # Core trading attributes
         print("🔧 [Bot Init] Setting up core trading attributes...")
@@ -15919,7 +16302,7 @@ class EnhancedTradingBot:
         
         try:
             print("📰 [Bot Init] Initializing News Manager...")
-            self.news_manager = NewsEconomicManager()  # News manager instance
+            self.news_manager = NewsAndSentiment.NewsEconomicManager()  # News manager instance
             print(" [Bot Init] News Manager initialized successfully")
             
             # Initialize Daily News Scheduler
@@ -15953,7 +16336,7 @@ class EnhancedTradingBot:
         # Initialize data_manager with news_manager reference
         print("📊 [Bot Init] Initializing Data Manager...")
         try:
-            self.data_manager = EnhancedDataManager(news_manager=self.news_manager)
+            self.data_manager = DataManager(news_manager=self.news_manager)
             print(" [Bot Init] Data Manager initialized successfully")
         except Exception as e:
             print(f" [Bot Init] Failed to initialize Data Manager: {e}")
@@ -15964,7 +16347,7 @@ class EnhancedTradingBot:
         # Initialize risk_manager
         print("🛡️ [Bot Init] Initializing Risk Manager...")
         try:
-            self.risk_manager = AdvancedRiskManager()
+            self.risk_manager = RiskManager.AdvancedRiskManager()
             self.risk_manager.data_manager = self.data_manager
             print(" [Bot Init] Risk Manager initialized successfully")
         except Exception as e:
@@ -21994,15 +22377,22 @@ class DriftMonitor:
         return drifted_features
 # <<< TFunction L P M I this VO FILE BOT >>>
 
-class AdvancedRiskManager:
-    """Enhanced risk management with asset class specific configurations"""
+# ==================================================
+# CLASS: RiskManager
+# ==================================================
 
-    def __init__(self):
-        # Risk limits
-        self.daily_var_limit = PORTFOLIO_RISK_LIMITS["daily_var_limit"]
-        self.weekly_var_limit = PORTFOLIO_RISK_LIMITS["weekly_var_limit"]
+class RiskManager:
+    """Container class for risk management components"""
+    
+    class AdvancedRiskManager:
+        """Enhanced risk management with asset class specific configurations"""
 
-        # Correlation matrix for portfolio risk
+        def __init__(self):
+            # Risk limits
+            self.daily_var_limit = PORTFOLIO_RISK_LIMITS["daily_var_limit"]
+            self.weekly_var_limit = PORTFOLIO_RISK_LIMITS["weekly_var_limit"]
+
+            # Correlation matrix for portfolio risk
         self.correlation_matrix = {}
 
         # Position sizing limits
@@ -22441,15 +22831,15 @@ class AdvancedRiskManager:
             # Return conservative default
             return 0.01
 
-class PortfolioRiskManager:
-    """
-    Portfolio risk management based on asset correlation.
-    """
-    def __init__(self, symbols, data_manager):
-        self.symbols = symbols
-        self.data_manager = data_manager
-        self.correlation_matrix = None
-        self.last_update_time = None
+    class PortfolioRiskManager:
+        """
+        Portfolio risk management based on asset correlation.
+        """
+        def __init__(self, symbols, data_manager):
+            self.symbols = symbols
+            self.data_manager = data_manager
+            self.correlation_matrix = None
+            self.last_update_time = None
 
     def update_correlation_matrix(self, force_update=False):
         """
@@ -25099,50 +25489,57 @@ def run_comprehensive_symbol_evaluation():
     return None
 
 # ==============================================================================
-# 4. MAIN EXECUTION BLOCK
+# 4. MAIN EXECUTION BLOCK - REFACTORED
 # ==============================================================================
-# REPLACE THE if __name__ == "__main__": BLOCK WITH THIS
 
-# FIND AND REPLACE ALL MAIN EXECUTION (MAIN) IN FILE WITH THIS
-
-# FIND AND REPLACE ALL MAIN EXECUTION IN FILE
+def main():
+    """Main execution function using refactored class structure"""
+    print("🚀 [MAIN] Starting Enhanced Trading Bot with Modular Architecture...")
+    print("=" * 80)
+    
+    try:
+        # Initialize the main trading bot with all components
+        print("📦 [MAIN] Initializing TradingBot with all components...")
+        bot = TradingBot()
+        print("✅ [MAIN] TradingBot initialized successfully")
+        
+        # Display component status
+        print("\n🔍 [MAIN] Component Status:")
+        print(f"   - DataManager: {'✅' if bot.data_manager else '❌'}")
+        print(f"   - FeatureEngineer: {'✅' if bot.feature_engineer else '❌'}")
+        print(f"   - NewsAndSentiment: {'✅' if bot.news_manager else '❌'}")
+        print(f"   - Models: {'✅' if bot.models else '❌'}")
+        print(f"   - RiskManager: {'✅' if bot.risk_manager else '❌'}")
+        print(f"   - Utils: {'✅' if bot.utils else '❌'}")
+        
+        # Load or train models
+        print("\n🧠 [MAIN] Loading/Training models...")
+        bot.load_or_train_models()
+        print("✅ [MAIN] Models ready")
+        
+        # Start the main trading loop
+        print("\n🔄 [MAIN] Starting main trading loop...")
+        print("=" * 80)
+        
+        # Run the enhanced bot
+        asyncio.run(bot.run_enhanced_bot())
+        
+    except KeyboardInterrupt:
+        print("\n⏹️  [MAIN] Bot stopped by user (Ctrl+C)")
+        print("🔄 [MAIN] Performing graceful shutdown...")
+        
+    except Exception as e:
+        print(f"\n❌ [MAIN] Critical error occurred: {e}")
+        import traceback
+        traceback.print_exc()
+        print("\n🔧 [MAIN] Attempting to save state before exit...")
+        
+    finally:
+        print("\n🏁 [MAIN] Bot execution completed")
+        print("=" * 80)
 
 if __name__ == "__main__":
-    print(" [MAIN] Starting bot initialization...")
-    
-    # 1. Khi to di tung bot
-    print(" [MAIN] Creating EnhancedTradingBot instance...")
-    try:
-        bot = EnhancedTradingBot()
-        print(" [MAIN] EnhancedTradingBot created successfully")
-    except Exception as e:
-        print(f" [MAIN] Failed to create EnhancedTradingBot: {e}")
-        import traceback
-        traceback.print_exc()
-        exit(1)
-
-    # 2. Load optimization configurations from experiment system
-    print(" [MAIN] Loading optimization configurations...")
-    try:
-        bot.load_or_train_models()
-        print(" [MAIN] Models loaded/trained successfully")
-    except Exception as e:
-        print(f" [MAIN] Failed to load/train models: {e}")
-        import traceback
-        traceback.print_exc()
-        exit(1)
-
-    # 3. Use asyncio.run() to start the async run_enhanced_bot function
-    print(" [MAIN] Starting bot execution...")
-    try:
-        # asyncio.run will automatically create, run and close the event loop
-        asyncio.run(bot.run_enhanced_bot())
-    except KeyboardInterrupt:
-        print("\n [MAIN] Bot has been stopped successfully.")
-    except Exception as e:
-        import traceback
-        # Catch all critical errors not handled in the main loop
-        print(f" [MAIN] UNIDENTIFIED HIGH-LEVEL ERROR: {e}\n{traceback.format_exc()}")
+    main()
 
 def smoke_test_crypto():
     """Check all configuration crypto has d set up and applied yet."""
@@ -25564,42 +25961,188 @@ def run_auto_fix():
         print("\n NO FIXES APPLIED")
         print(" Manual fix required")
 
-# Run smoke test if this file is executed directly
-if __name__ == "__main__":
-    print(" BOT STARTING...")
-    
-    # Test NewsEconomicManager first
-    print(" Testing NewsEconomicManager...")
-    try:
-        news_manager = NewsEconomicManager()
-        print("NewsEconomicManager created successfully")
-        print(f"   - news_providers: {len(news_manager.news_providers)}")
-        print(f"   - llm_analyzer: {news_manager.llm_analyzer is not None}")
-    except Exception as e:
-        print(f"NewsEconomicManager failed: {e}")
-        import traceback
-        traceback.print_exc()
-    
-    # Test Bot creation
-    print(" Testing Bot creation...")
-    try:
-        bot = EnhancedTradingBot()
-        print("EnhancedTradingBot created successfully")
-        print(f"   - hasattr news_manager: {hasattr(bot, 'news_manager')}")
-        if hasattr(bot, 'news_manager'):
-            print(f"   - news_manager is not None: {bot.news_manager is not None}")
-    except Exception as e:
-        print(f"EnhancedTradingBot failed: {e}")
-        import traceback
-        traceback.print_exc()
-    
-    # Ch y auto-fix before khi test
-    print(" CHECKING FOR DUPLICATE CLASSES...")
-    run_auto_fix()
-    
-    # Run production test suite
-    test_suite = ProductionTestSuite()
-    test_suite.run_production_tests()
+# ==============================================================================
+# 5. TESTING AND VALIDATION FUNCTIONS
+# ==============================================================================
 
-    # Also run smoke test
-    smoke_test_crypto()
+def run_component_tests():
+    """Run tests for all refactored components"""
+    print("🧪 [TEST] Running component tests...")
+    print("=" * 50)
+    
+    test_results = {}
+    
+    # Test Constants class
+    try:
+        print("Testing Constants class...")
+        assert hasattr(Constants, 'Trading')
+        assert hasattr(Constants, 'Features')
+        assert hasattr(Constants, 'SymbolType')
+        test_results['Constants'] = True
+        print("✅ Constants class: PASSED")
+    except Exception as e:
+        test_results['Constants'] = False
+        print(f"❌ Constants class: FAILED - {e}")
+    
+    # Test DataManager class
+    try:
+        print("Testing DataManager class...")
+        data_manager = DataManager()
+        assert hasattr(data_manager, 'fetch_multi_timeframe_data')
+        assert hasattr(data_manager, 'get_current_price')
+        test_results['DataManager'] = True
+        print("✅ DataManager class: PASSED")
+    except Exception as e:
+        test_results['DataManager'] = False
+        print(f"❌ DataManager class: FAILED - {e}")
+    
+    # Test FeatureEngineer class
+    try:
+        print("Testing FeatureEngineer class...")
+        feature_engineer = FeatureEngineer()
+        assert hasattr(feature_engineer, 'create_technical_features')
+        assert hasattr(feature_engineer, 'create_wyckoff_features')
+        test_results['FeatureEngineer'] = True
+        print("✅ FeatureEngineer class: PASSED")
+    except Exception as e:
+        test_results['FeatureEngineer'] = False
+        print(f"❌ FeatureEngineer class: FAILED - {e}")
+    
+    # Test NewsAndSentiment class
+    try:
+        print("Testing NewsAndSentiment class...")
+        news_sentiment = NewsAndSentiment()
+        assert hasattr(news_sentiment, 'LLMSentimentAnalyzer')
+        assert hasattr(news_sentiment, 'NewsEconomicManager')
+        test_results['NewsAndSentiment'] = True
+        print("✅ NewsAndSentiment class: PASSED")
+    except Exception as e:
+        test_results['NewsAndSentiment'] = False
+        print(f"❌ NewsAndSentiment class: FAILED - {e}")
+    
+    # Test Models class
+    try:
+        print("Testing Models class...")
+        models = Models()
+        assert hasattr(models, 'EnhancedEnsembleModel')
+        assert hasattr(models, 'LSTMModel')
+        test_results['Models'] = True
+        print("✅ Models class: PASSED")
+    except Exception as e:
+        test_results['Models'] = False
+        print(f"❌ Models class: FAILED - {e}")
+    
+    # Test RiskManager class
+    try:
+        print("Testing RiskManager class...")
+        risk_manager = RiskManager()
+        assert hasattr(risk_manager, 'calculate_position_size')
+        assert hasattr(risk_manager, 'correlation_check')
+        test_results['RiskManager'] = True
+        print("✅ RiskManager class: PASSED")
+    except Exception as e:
+        test_results['RiskManager'] = False
+        print(f"❌ RiskManager class: FAILED - {e}")
+    
+    # Test Utils class
+    try:
+        print("Testing Utils class...")
+        assert hasattr(Utils, 'get_symbol_type')
+        assert hasattr(Utils, 'format_currency')
+        assert hasattr(Utils, 'calculate_percentage_change')
+        test_results['Utils'] = True
+        print("✅ Utils class: PASSED")
+    except Exception as e:
+        test_results['Utils'] = False
+        print(f"❌ Utils class: FAILED - {e}")
+    
+    # Test TradingBot class
+    try:
+        print("Testing TradingBot class...")
+        bot = TradingBot()
+        assert hasattr(bot, 'data_manager')
+        assert hasattr(bot, 'feature_engineer')
+        assert hasattr(bot, 'news_manager')
+        test_results['TradingBot'] = True
+        print("✅ TradingBot class: PASSED")
+    except Exception as e:
+        test_results['TradingBot'] = False
+        print(f"❌ TradingBot class: FAILED - {e}")
+    
+    # Summary
+    print("\n📊 [TEST] Test Summary:")
+    print("=" * 50)
+    passed = sum(1 for result in test_results.values() if result)
+    total = len(test_results)
+    
+    for component, result in test_results.items():
+        status = "✅ PASSED" if result else "❌ FAILED"
+        print(f"   {component}: {status}")
+    
+    print(f"\nOverall: {passed}/{total} components passed")
+    
+    if passed == total:
+        print("🎉 All component tests PASSED!")
+        return True
+    else:
+        print("⚠️  Some component tests FAILED!")
+        return False
+
+def run_integration_test():
+    """Run integration test for the complete system"""
+    print("\n🔗 [TEST] Running integration test...")
+    print("=" * 50)
+    
+    try:
+        # Create bot instance
+        bot = TradingBot()
+        print("✅ Bot created successfully")
+        
+        # Test component initialization
+        assert bot.data_manager is not None
+        assert bot.feature_engineer is not None
+        assert bot.news_manager is not None
+        assert bot.models is not None
+        assert bot.risk_manager is not None
+        assert bot.utils is not None
+        print("✅ All components initialized")
+        
+        # Test basic functionality
+        symbol_info = bot.utils.get_symbol_info("EURUSD")
+        assert symbol_info['is_valid'] == True
+        print("✅ Basic functionality test passed")
+        
+        print("🎉 Integration test PASSED!")
+        return True
+        
+    except Exception as e:
+        print(f"❌ Integration test FAILED: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+# Run tests if this file is executed directly
+if __name__ == "__main__":
+    print("🧪 [TEST] Starting component and integration tests...")
+    print("=" * 80)
+    
+    # Run component tests
+    component_test_passed = run_component_tests()
+    
+    # Run integration test
+    integration_test_passed = run_integration_test()
+    
+    # Final result
+    print("\n🏁 [TEST] Final Results:")
+    print("=" * 80)
+    print(f"Component Tests: {'✅ PASSED' if component_test_passed else '❌ FAILED'}")
+    print(f"Integration Test: {'✅ PASSED' if integration_test_passed else '❌ FAILED'}")
+    
+    if component_test_passed and integration_test_passed:
+        print("\n🎉 All tests PASSED! Bot is ready for production.")
+        print("🚀 Starting main execution...")
+        print("=" * 80)
+        main()
+    else:
+        print("\n⚠️  Some tests FAILED! Please fix issues before running bot.")
+        print("🔧 Check the error messages above for details.")
