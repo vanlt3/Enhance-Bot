@@ -1289,6 +1289,32 @@ class UltraOverfittingPrevention:
                 model.min_samples_leaf = max(model.min_samples_leaf, self.min_samples_leaf_limit)
             if hasattr(model, 'max_features'):
                 model.max_features = self.max_features_limit  # Very few features
+            # Additional tree regularization
+            if hasattr(model, 'random_state'):
+                model.random_state = 42  # For reproducibility
+            if hasattr(model, 'n_jobs'):
+                model.n_jobs = 1  # Prevent parallel overfitting
+                
+        elif model_type == "linear":
+            # For linear models - strong regularization
+            if hasattr(model, 'C'):
+                model.C = min(model.C, 0.1)  # Strong L2 regularization
+            if hasattr(model, 'penalty'):
+                model.penalty = 'l2'  # L2 regularization
+            if hasattr(model, 'max_iter'):
+                model.max_iter = 1000  # Sufficient iterations
+            if hasattr(model, 'solver'):
+                model.solver = 'liblinear'  # Stable solver
+                
+        elif model_type == "neural":
+            # For neural networks - dropout and regularization
+            if hasattr(model, 'dropout_rate'):
+                model.dropout_rate = self.dropout_rate
+            if hasattr(model, 'batch_normalization'):
+                model.batch_normalization = self.batch_normalization
+            if hasattr(model, 'early_stopping'):
+                model.early_stopping = True
+                model.early_stopping_patience = self.early_stopping_patience
 
         return model
 
@@ -1361,6 +1387,24 @@ class UltraOverfittingPrevention:
             # High variance indicates overfitting
             if cv_std > 0.2 or cv_mean < 0.4:
                 return True
+        
+        # Check for other overfitting indicators
+        if 'mean_f1' in model_results and 'std_f1' in model_results:
+            mean_f1 = model_results['mean_f1']
+            std_f1 = model_results['std_f1']
+            
+            # High variance in F1 scores indicates overfitting
+            if std_f1 > 0.15 or mean_f1 < 0.3:
+                return True
+        
+        # Check for accuracy overfitting
+        if 'mean_accuracy' in model_results and 'std_accuracy' in model_results:
+            mean_acc = model_results['mean_accuracy']
+            std_acc = model_results['std_accuracy']
+            
+            # High variance in accuracy indicates overfitting
+            if std_acc > 0.1 or mean_acc < 0.4:
+                return True
 
         return False
 
@@ -1374,6 +1418,85 @@ class UltraOverfittingPrevention:
         for field in required_fields:
             if field not in model_data:
                 return False
+        
+        # Additional validation checks
+        if 'cv_scores' in model_data:
+            cv_scores = model_data['cv_scores']
+            if len(cv_scores) < 3:  # Need at least 3 CV folds
+                return False
+            if np.std(cv_scores) > 0.3:  # High variance indicates instability
+                return False
+        
+        return True
+    
+    def get_overfitting_report(self, model_results: dict) -> dict:
+        """Generate comprehensive overfitting report"""
+        report = {
+            'overfitting_detected': False,
+            'issues': [],
+            'recommendations': [],
+            'metrics': {}
+        }
+        
+        # Check CV scores
+        if 'cv_scores' in model_results:
+            cv_scores = model_results['cv_scores']
+            cv_std = np.std(cv_scores)
+            cv_mean = np.mean(cv_scores)
+            
+            report['metrics']['cv_mean'] = cv_mean
+            report['metrics']['cv_std'] = cv_std
+            
+            if cv_std > 0.2:
+                report['overfitting_detected'] = True
+                report['issues'].append(f"High CV variance: {cv_std:.3f}")
+                report['recommendations'].append("Increase regularization")
+            
+            if cv_mean < 0.4:
+                report['overfitting_detected'] = True
+                report['issues'].append(f"Low CV performance: {cv_mean:.3f}")
+                report['recommendations'].append("Check feature quality and data preprocessing")
+        
+        # Check F1 scores
+        if 'mean_f1' in model_results and 'std_f1' in model_results:
+            mean_f1 = model_results['mean_f1']
+            std_f1 = model_results['std_f1']
+            
+            report['metrics']['f1_mean'] = mean_f1
+            report['metrics']['f1_std'] = std_f1
+            
+            if std_f1 > 0.15:
+                report['overfitting_detected'] = True
+                report['issues'].append(f"High F1 variance: {std_f1:.3f}")
+                report['recommendations'].append("Apply stronger regularization")
+        
+        return report
+    
+    def log_overfitting_stats(self, model_name: str, model_results: dict):
+        """Log overfitting statistics for monitoring"""
+        report = self.get_overfitting_report(model_results)
+        
+        # Log to file
+        log_entry = {
+            'timestamp': datetime.now().isoformat(),
+            'model_name': model_name,
+            'overfitting_detected': report['overfitting_detected'],
+            'issues': report['issues'],
+            'metrics': report['metrics']
+        }
+        
+        # Write to overfitting log file
+        log_file = "logs/overfitting_prevention.log"
+        os.makedirs(os.path.dirname(log_file), exist_ok=True)
+        
+        with open(log_file, 'a') as f:
+            f.write(json.dumps(log_entry) + '\n')
+        
+        # Console logging
+        if report['overfitting_detected']:
+            logging.warning(f"[UltraOverfittingPrevention] {model_name}: Overfitting detected - {report['issues']}")
+        else:
+            logging.info(f"[UltraOverfittingPrevention] {model_name}: No overfitting detected")
 
 # Compatibility functions for scikit-learn version differences
 def create_calibrated_classifier(estimator, method='isotonic', cv=3):
@@ -8271,6 +8394,10 @@ class EnhancedEnsembleModel:
         self.alert_limit = 5  # Reduced alert limit from test results
         self.overfitting_detection = True  # Enable overfitting detection
         self.validation_requirements = "STRICT"  # Strict validation
+        
+        # Initialize UltraOverfittingPrevention
+        self.ultra_prevention = UltraOverfittingPrevention()
+        print("✅ [UltraOverfittingPrevention] Initialized in EnhancedEnsembleModel")
     def enhanced_time_series_split(self, X, y, n_splits=5, gap=0, max_train_size=None):
         """Enhanced time series split with gap and purging"""
         n_samples = len(X)
@@ -9149,13 +9276,38 @@ class EnsembleModel:
         print(f"   - Input shape: X={X.shape}, y={y.shape}")
         print(f"   - Target classes: {y.value_counts().to_dict()}")
 
+        # === ULTRA OVERFITTING PREVENTION ===
+        print("🛡️ [UltraOverfittingPrevention] Starting overfitting prevention checks...")
+        
+        # Check system resources
+        if not self.ultra_prevention.check_system_resources():
+            print("⚠️ [UltraOverfittingPrevention] System resources insufficient, applying conservative settings")
+            self.ultra_prevention.max_features_limit = 0.2  # Even more restrictive
+            self.ultra_prevention.validation_threshold = 0.01  # Stricter validation
+        
         # Check for potential overfitting indicators
         class_balance = y.value_counts(normalize=True)
         if class_balance.min() < 0.1:  # Less than 10% minority class
-            print(f" [Overfitting Warning] Class imbalance detected: {class_balance.to_dict()}")
+            print(f"⚠️ [UltraOverfittingPrevention] Class imbalance detected: {class_balance.to_dict()}")
+            # Apply class balancing
+            from sklearn.utils.class_weight import compute_class_weight
+            class_weights = compute_class_weight('balanced', classes=np.unique(y), y=y)
+            self.class_weights = dict(zip(np.unique(y), class_weights))
+            print(f"✅ [UltraOverfittingPrevention] Applied class weights: {self.class_weights}")
         
         if len(X) < 1000:
-            print(f" [Overfitting Warning] Small dataset size: {len(X)} samples")
+            print(f"⚠️ [UltraOverfittingPrevention] Small dataset size: {len(X)} samples")
+            # Apply more aggressive regularization for small datasets
+            self.ultra_prevention.max_depth_limit = 3
+            self.ultra_prevention.min_samples_leaf_limit = 50
+            print("✅ [UltraOverfittingPrevention] Applied aggressive regularization for small dataset")
+        
+        # Check feature-to-sample ratio
+        feature_ratio = X.shape[1] / X.shape[0]
+        if feature_ratio > 0.1:  # More than 10% features per sample
+            print(f"⚠️ [UltraOverfittingPrevention] High feature-to-sample ratio: {feature_ratio:.3f}")
+            self.ultra_prevention.max_features_limit = 0.2  # More restrictive feature selection
+            print("✅ [UltraOverfittingPrevention] Applied restrictive feature selection")
 
         base_model_names = [m for m in ML_CONFIG["ENSEMBLE_MODELS"] if m != "lstm"]
         print(f"   - Base models: {base_model_names}")
@@ -9210,19 +9362,56 @@ class EnsembleModel:
         for name in base_model_names:
             logging.info(f"      -> Training and getting OOF predictions for {name}...")
             model = self._get_optimized_model(name, X, y)
+            
+            # === APPLY ULTRA REGULARIZATION ===
+            print(f"🛡️ [UltraOverfittingPrevention] Applying regularization to {name}...")
+            model = self.ultra_prevention.apply_ultra_regularization(model, "tree")
+            
             oof_preds_for_model = np.full(len(X), np.nan)
+            validation_results = []
 
             for train_idx, val_idx in tscv.split(X_to_use):
                 X_train, y_train = X_to_use.iloc[train_idx], y.iloc[train_idx]
-                X_val = X_to_use.iloc[val_idx]
+                X_val, y_val = X_to_use.iloc[val_idx], y.iloc[val_idx]
                 model_clone = clone(model)
+                
+                # Apply class weights if available
+                if hasattr(self, 'class_weights') and hasattr(model_clone, 'class_weight'):
+                    model_clone.class_weight = self.class_weights
+                
                 model_clone.fit(X_train, y_train)
                 oof_preds_for_model[val_idx] = model_clone.predict_proba(X_val)[:, 1]
+                
+                # === VALIDATE GENERALIZATION ===
+                val_result = self.ultra_prevention.validate_model_generalization(
+                    model_clone, X_train, y_train, X_val, y_val
+                )
+                validation_results.append(val_result)
+                
+                # Check for overfitting during training
+                if val_result['is_overfitting']:
+                    print(f"⚠️ [UltraOverfittingPrevention] Overfitting detected in {name} fold: gap={val_result['accuracy_gap']:.3f}")
+                    # Apply additional regularization
+                    model_clone = self.ultra_prevention.apply_ultra_regularization(model_clone, "tree")
 
             oof_predictions[name] = oof_preds_for_model
             model.fit(X_to_use, y)
             self.models[name] = model
             self.cv_results[name] = self.evaluate_model_with_purged_cv(model, X_to_use, y)
+            
+            # === FINAL OVERFITTING DETECTION ===
+            if self.ultra_prevention.detect_overfitting(self.cv_results[name]):
+                print(f"⚠️ [UltraOverfittingPrevention] Overfitting detected in {name} final model")
+                # Apply additional regularization to final model
+                self.models[name] = self.ultra_prevention.apply_ultra_regularization(self.models[name], "tree")
+                print(f"✅ [UltraOverfittingPrevention] Applied additional regularization to {name}")
+            
+            # Log overfitting statistics
+            self.ultra_prevention.log_overfitting_stats(name, self.cv_results[name])
+            
+            # Log validation results
+            avg_gap = np.mean([r['accuracy_gap'] for r in validation_results])
+            print(f"📊 [UltraOverfittingPrevention] {name} average generalization gap: {avg_gap:.3f}")
 
             if hasattr(model, 'feature_importances_'):
                 # Using used columns cho feature importance
@@ -9235,11 +9424,31 @@ class EnsembleModel:
         y_for_meta = y.reindex(meta_features_df.index)
 
         logging.info("\n   [Stacking] Starting Meta-Model training and evaluation (Level 1)...")
-        meta_model_for_scoring = LogisticRegression()
+        
+        # === ULTRA OVERFITTING PREVENTION FOR META-MODEL ===
+        print("🛡️ [UltraOverfittingPrevention] Applying regularization to meta-model...")
+        meta_model_for_scoring = LogisticRegression(
+            C=0.1,  # Strong regularization
+            penalty='l2',
+            max_iter=1000,
+            class_weight='balanced' if hasattr(self, 'class_weights') else None
+        )
+        meta_model_for_scoring = self.ultra_prevention.apply_ultra_regularization(meta_model_for_scoring, "linear")
+        
         meta_score = np.mean(
             safe_cross_val_score(meta_model_for_scoring, meta_features_df, y_for_meta, cv=tscv, scoring="f1")
         )
         logging.info(f"   [Stacking] Meta-Model F1-Score (cross-validated): {meta_score:.4f}")
+        
+        # Check meta-model for overfitting
+        if meta_score < 0.4:  # Low meta-model performance indicates overfitting
+            print(f"⚠️ [UltraOverfittingPrevention] Low meta-model performance: {meta_score:.3f}, applying additional regularization")
+            meta_model_for_scoring = LogisticRegression(
+                C=0.01,  # Even stronger regularization
+                penalty='l2',
+                max_iter=1000,
+                class_weight='balanced'
+            )
 
         # === Enhanced Stacking (Level 1) ===
         logging.info("   [Enhanced Stacking] Starting Level 1: Meta-learner training...")
@@ -9262,8 +9471,31 @@ class EnsembleModel:
         y_meta_cal   = y_for_meta.iloc[split_idx:]
 
         # Fifrom modeleta-estimator trn ph n "train" th i gian before with regularization
-        base_meta = LogisticRegression(max_iter=1000, C=0.1, penalty='l2')  # Add regularization
+        print("🛡️ [UltraOverfittingPrevention] Applying regularization to base meta-model...")
+        base_meta = LogisticRegression(
+            max_iter=1000, 
+            C=0.1, 
+            penalty='l2',
+            class_weight='balanced' if hasattr(self, 'class_weights') else None
+        )
+        base_meta = self.ultra_prevention.apply_ultra_regularization(base_meta, "linear")
         base_meta.fit(X_meta_train, y_meta_train)
+        
+        # Validate meta-model generalization
+        meta_val_result = self.ultra_prevention.validate_model_generalization(
+            base_meta, X_meta_train, y_meta_train, X_meta_cal, y_meta_cal
+        )
+        print(f"📊 [UltraOverfittingPrevention] Meta-model generalization gap: {meta_val_result['accuracy_gap']:.3f}")
+        
+        if meta_val_result['is_overfitting']:
+            print("⚠️ [UltraOverfittingPrevention] Meta-model overfitting detected, applying stronger regularization")
+            base_meta = LogisticRegression(
+                max_iter=1000, 
+                C=0.01,  # Stronger regularization
+                penalty='l2',
+                class_weight='balanced'
+            )
+            base_meta.fit(X_meta_train, y_meta_train)
 
         # Hi u ch nh probability trn ph n "calibration" th i gian sau
         logging.info("   [Stacking] Starting probability calibration (Level 2: Calibration)...")
@@ -9284,6 +9516,39 @@ class EnsembleModel:
             logging.info("   [Stacking] Calibration (isotonic, cv=3) completed.")
             print(" [Ensemble Training] Level 2 completed: Calibration (isotonic, cv=3)")
 
+        # === FINAL OVERFITTING PREVENTION SUMMARY ===
+        print("🛡️ [UltraOverfittingPrevention] Final overfitting prevention summary:")
+        total_models = len(self.models)
+        overfitting_detected = 0
+        detailed_reports = {}
+        
+        for model_name, cv_result in self.cv_results.items():
+            # Generate detailed overfitting report
+            report = self.ultra_prevention.get_overfitting_report(cv_result)
+            detailed_reports[model_name] = report
+            
+            if report['overfitting_detected']:
+                overfitting_detected += 1
+                print(f"   ⚠️ {model_name}: Overfitting detected")
+                for issue in report['issues']:
+                    print(f"      - {issue}")
+                for rec in report['recommendations']:
+                    print(f"      → {rec}")
+            else:
+                print(f"   ✅ {model_name}: No overfitting detected")
+                print(f"      - CV mean: {report['metrics'].get('cv_mean', 'N/A'):.3f}")
+                print(f"      - CV std: {report['metrics'].get('cv_std', 'N/A'):.3f}")
+        
+        print(f"📊 [UltraOverfittingPrevention] Summary: {overfitting_detected}/{total_models} models had overfitting issues")
+        
+        if overfitting_detected > total_models * 0.5:  # More than 50% models overfitting
+            print("🚨 [UltraOverfittingPrevention] WARNING: High overfitting rate detected across ensemble!")
+            print("   Consider: 1) More data, 2) Stronger regularization, 3) Feature selection")
+        
+        # Store detailed reports for later analysis
+        self.overfitting_reports = detailed_reports
+        logging.info(f"[UltraOverfittingPrevention] Generated {len(detailed_reports)} overfitting reports")
+        
         logging.info("Stacking ensemble training (Level 0 + Level 1 + Level 2) completed!")
         print(" [Ensemble Training] Hon thnh training ensemble model!")
         print(" [Tm t t Training Results]:")
@@ -9291,6 +9556,7 @@ class EnsembleModel:
         print(f"    Level 1 (Meta Learners): {list(self.meta_learners.keys()) if hasattr(self, 'meta_learners') else 'None'}")
         print(f"    Level 2 (Calibration): {'Completed' if hasattr(self, 'meta_model') else 'Failed'}")
         print(f"    CV Results: {list(self.cv_results.keys())}")
+        print(f"    Overfitting Prevention: {'Active' if self.ultra_prevention.overfitting_detection else 'Disabled'}")
 
     def _train_stacking_model(self, X, y, oof_predictions):
         """Enhanced stacking with multiple meta-learners"""
